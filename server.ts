@@ -1,6 +1,7 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import cors from "cors";
 import db from "./db.ts";
@@ -1363,7 +1364,7 @@ const authenticateToken = (req: any, res: any, next: any) => {
 
       // Sync to Firestore
       adminDb.collection('hero_banners').doc(bannerId.id.toString()).set({
-        title, subtitle, image_url, link_url, priority, is_active: is_active ? 1 : 0, button_text, background_color
+        title, subtitle, image_url, link_url, priority, is_active: !!is_active, button_text, background_color
       }).catch(err => console.error("Firestore sync error (banner create):", err));
 
       res.json({ success: true });
@@ -1382,7 +1383,7 @@ const authenticateToken = (req: any, res: any, next: any) => {
       
       // Sync to Firestore
       adminDb.collection('hero_banners').doc(req.params.id).set({
-        title, subtitle, image_url, link_url, priority, is_active: is_active ? 1 : 0, button_text, background_color
+        title, subtitle, image_url, link_url, priority, is_active: !!is_active, button_text, background_color
       }, { merge: true }).catch(err => console.error("Firestore sync error (banner update):", err));
 
       res.json({ success: true });
@@ -1562,9 +1563,9 @@ const authenticateToken = (req: any, res: any, next: any) => {
           gsm, material_composition, fit_type, weight,
           base_price, cost_price, discount_price, 
           stock_quantity: finalStock, low_stock_alert,
-          is_active: is_active ? 1 : 0, 
-          is_new_arrival: is_new_arrival ? 1 : 0, 
-          is_best_seller: is_best_seller ? 1 : 0,
+          is_active: !!is_active, 
+          is_new_arrival: !!is_new_arrival, 
+          is_best_seller: !!is_best_seller,
           created_at: new Date().toISOString()
         });
 
@@ -1687,9 +1688,9 @@ const authenticateToken = (req: any, res: any, next: any) => {
           gsm, material_composition, fit_type, weight,
           base_price, cost_price, discount_price, 
           stock_quantity: finalStock, low_stock_alert,
-          is_active: is_active ? 1 : 0, 
-          is_new_arrival: is_new_arrival ? 1 : 0, 
-          is_best_seller: is_best_seller ? 1 : 0,
+          is_active: !!is_active, 
+          is_new_arrival: !!is_new_arrival, 
+          is_best_seller: !!is_best_seller,
           updated_at: new Date().toISOString()
         }, { merge: true });
 
@@ -1878,6 +1879,12 @@ const authenticateToken = (req: any, res: any, next: any) => {
 
   // Vite middleware for development
   const isProduction = process.env.NODE_ENV === "production" || process.env.VITE_USER_NODE_ENV === "production";
+  const distPath = path.resolve(__dirname, "dist");
+  const indexPath = path.join(distPath, "index.html");
+  const distExists = fs.existsSync(distPath) && fs.existsSync(indexPath);
+
+  console.log(`[Server] Environment: NODE_ENV=${process.env.NODE_ENV}, VITE_USER_NODE_ENV=${process.env.VITE_USER_NODE_ENV}`);
+  console.log(`[Server] Production Mode: ${isProduction}, Dist Exists: ${distExists}`);
   
   if (!isProduction && process.env.VERCEL !== "1") {
     console.log("Starting in DEVELOPMENT mode (Vite middleware enabled)");
@@ -1886,27 +1893,29 @@ const authenticateToken = (req: any, res: any, next: any) => {
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (distExists) {
     console.log("Starting in PRODUCTION mode (serving static files)");
-    const distPath = path.resolve(__dirname, "dist");
-    const indexPath = path.join(distPath, "index.html");
-    
     app.use(express.static(distPath));
     
     app.get("*", (req, res) => {
       res.sendFile(indexPath, (err) => {
         if (err) {
-          // If index.html is missing, it might be because we are in a serverless function
-          // and the static files are served by the platform.
-          if (process.env.VERCEL === "1") {
-            res.status(404).send("Not Found");
-          } else {
-            console.error("Error sending index.html:", err);
-            res.status(500).send("Internal Server Error: Missing index.html");
-          }
+          console.error("Error sending index.html:", err);
+          res.status(500).send("Internal Server Error: Failed to send index.html");
         }
       });
     });
+  } else {
+    console.warn("Production mode requested but 'dist' directory or 'index.html' is missing. Falling back to Vite middleware if possible.");
+    if (process.env.VERCEL !== "1") {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } else {
+      res.status(500).send("Internal Server Error: Production build missing and Vite middleware unavailable.");
+    }
   }
 
 if (process.env.VERCEL !== "1") {

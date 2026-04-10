@@ -524,8 +524,17 @@ const ensureAdmin = async () => {
 };
 ensureAdmin();
 
-const insertBanner = db.prepare('INSERT INTO hero_banners (title, subtitle, image_url, link_url, priority, button_text, background_color) VALUES (?, ?, ?, ?, ?, ?, ?)');
-insertBanner.run('BULK ORDER SPECIAL', 'Get up to 20% off on bulk orders. 5+ items = 5% discount, +1% for each extra item!', 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1920&q=80', '/shop', 1, 'SHOP BULK', '#1a1a1a');
-insertBanner.run('NEW ARRIVALS', 'Check out our latest Polo and Round Neck collections.', 'https://images.unsplash.com/photo-1445205170230-053b83016050?auto=format&fit=crop&w=1920&q=80', '/shop', 2, 'EXPLORE NOW', '#000000');
+// Seed default banners if empty
+try {
+  const bannerCount = db.prepare('SELECT COUNT(*) as count FROM hero_banners').get() as { count: number };
+  if (bannerCount.count === 0) {
+    const insertBanner = db.prepare('INSERT INTO hero_banners (title, subtitle, image_url, link_url, priority, button_text, background_color) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    insertBanner.run('BULK ORDER SPECIAL', 'Get up to 20% off on bulk orders. 5+ items = 5% discount, +1% for each extra item!', 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1920&q=80', '/shop', 1, 'SHOP BULK', '#1a1a1a');
+    insertBanner.run('NEW ARRIVALS', 'Check out our latest Polo and Round Neck collections.', 'https://images.unsplash.com/photo-1445205170230-053b83016050?auto=format&fit=crop&w=1920&q=80', '/shop', 2, 'EXPLORE NOW', '#000000');
+    console.log("Seeded default banners");
+  }
+} catch (e) {
+  console.error("Failed to seed banners:", e);
+}
 
 export default db;
