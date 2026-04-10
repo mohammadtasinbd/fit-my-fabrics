@@ -75,7 +75,15 @@ export function Checkout() {
         })
       });
       
-      const data = await response.json().catch(() => ({ error: 'Server returned an invalid response' }));
+      const responseText = await response.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error('Invalid JSON response:', responseText);
+        throw new Error('Server returned an invalid response. This usually happens when the server is down or returning an error page.');
+      }
+      
       if (response.ok && data.success) {
         setOrderId(data.orderId);
         setIsSuccess(true);

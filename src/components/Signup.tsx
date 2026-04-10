@@ -63,7 +63,14 @@ export function Signup() {
       setTakingLonger(false);
       console.log('OTP response status:', res.status);
       
-      const data = await res.json().catch(() => ({ error: 'Server returned an invalid response' }));
+      const responseText = await res.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error('Invalid JSON response:', responseText);
+        throw new Error('Server returned an invalid response. This usually happens when the server is down or returning an error page.');
+      }
       console.log('OTP response data:', data);
       
       if (!res.ok) {
@@ -131,7 +138,15 @@ export function Signup() {
       });
       clearTimeout(timeoutId);
 
-      const data = await res.json().catch(() => ({ error: 'Server returned an invalid response' }));
+      const responseText = await res.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error('Invalid JSON response:', responseText);
+        throw new Error('Server returned an invalid response. This usually happens when the server is down or returning an error page.');
+      }
+      
       if (!res.ok) throw new Error(data.error || 'Signup failed');
 
       authLogin(data.token, data.user);

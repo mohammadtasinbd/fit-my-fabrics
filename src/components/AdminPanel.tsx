@@ -213,7 +213,14 @@ export function AdminPanel() {
         }
       });
       
-      const data = await res.json().catch(() => ({ error: 'Failed to parse server response' }));
+      const responseText = await res.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error('Invalid JSON response:', responseText);
+        data = { error: 'Server returned an invalid response. Please check the console for details.' };
+      }
       
       if (res.ok) {
         if (type === 'product') setProducts(prev => prev.filter(p => String(p.id) !== String(id)));
@@ -406,7 +413,14 @@ export function AdminPanel() {
           setPromoCodes(d);
         }
       } else {
-        const data = await res.json().catch(() => ({ error: 'Failed to parse server response' }));
+        const responseText = await res.text();
+        let data;
+        try {
+          data = JSON.parse(responseText);
+        } catch (e) {
+          console.error('Invalid JSON response:', responseText);
+          data = { error: 'Server returned an invalid response. Please check the console for details.' };
+        }
         setErrorMessage(data.error || 'Failed to save changes');
       }
     } catch (err) {

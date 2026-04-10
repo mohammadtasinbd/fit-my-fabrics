@@ -27,7 +27,15 @@ export function Login() {
         body: JSON.stringify({ login, password })
       });
 
-      const data = await res.json().catch(() => ({ error: 'Server returned an invalid response' }));
+      const responseText = await res.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error('Invalid JSON response:', responseText);
+        throw new Error('Server returned an invalid response. This usually happens when the server is down or returning an error page.');
+      }
+      
       if (!res.ok) throw new Error(data.error || 'Login failed');
 
       authLogin(data.token, data.user);

@@ -119,17 +119,28 @@ async function initServer() {
       // Seed categories
       const categories = db.prepare("SELECT * FROM categories").all() as any[];
       for (const cat of categories) {
-        await adminDb.collection('categories').doc(cat.id.toString()).set(cat);
+        await adminDb.collection('categories').doc(cat.id.toString()).set({
+          ...cat,
+          is_featured: !!cat.is_featured
+        });
       }
 
       // Seed products
       const products = db.prepare("SELECT * FROM products").all() as any[];
       for (const p of products) {
-        await adminDb.collection('products').doc(p.id.toString()).set(p);
+        await adminDb.collection('products').doc(p.id.toString()).set({
+          ...p,
+          is_active: !!p.is_active,
+          is_new_arrival: !!p.is_new_arrival,
+          is_best_seller: !!p.is_best_seller
+        });
         
         const images = db.prepare("SELECT * FROM product_images WHERE product_id = ?").all(p.id) as any[];
         for (const img of images) {
-          await adminDb.collection(`products/${p.id}/images`).doc(img.id.toString()).set(img);
+          await adminDb.collection(`products/${p.id}/images`).doc(img.id.toString()).set({
+            ...img,
+            is_main: !!img.is_main
+          });
         }
 
         const variants = db.prepare("SELECT * FROM product_variants WHERE product_id = ?").all(p.id) as any[];
@@ -141,7 +152,10 @@ async function initServer() {
       // Seed banners
       const banners = db.prepare("SELECT * FROM hero_banners").all() as any[];
       for (const b of banners) {
-        await adminDb.collection('hero_banners').doc(b.id.toString()).set(b);
+        await adminDb.collection('hero_banners').doc(b.id.toString()).set({
+          ...b,
+          is_active: !!b.is_active
+        });
       }
 
       // Seed settings
@@ -1573,7 +1587,7 @@ const authenticateToken = (req: any, res: any, next: any) => {
           for (const [idx, img] of images.entries()) {
             await adminDb.collection(`products/${productId}/images`).add({
               image_url: img.image_url,
-              is_main: img.is_main ? 1 : 0,
+              is_main: !!img.is_main,
               display_order: idx
             });
           }
@@ -1702,7 +1716,7 @@ const authenticateToken = (req: any, res: any, next: any) => {
           for (const [idx, img] of images.entries()) {
             await imagesRef.add({
               image_url: img.image_url,
-              is_main: img.is_main ? 1 : 0,
+              is_main: !!img.is_main,
               display_order: idx
             });
           }
@@ -1785,7 +1799,7 @@ const authenticateToken = (req: any, res: any, next: any) => {
           name: cat.name,
           slug: cat.slug,
           image_url: cat.image_url,
-          is_featured: cat.is_featured
+          is_featured: !!cat.is_featured
         });
       }
 
@@ -1801,7 +1815,7 @@ const authenticateToken = (req: any, res: any, next: any) => {
           image_url: b.image_url,
           link_url: b.link_url,
           priority: b.priority,
-          is_active: b.is_active,
+          is_active: !!b.is_active,
           button_text: b.button_text,
           background_color: b.background_color
         });
@@ -1828,9 +1842,9 @@ const authenticateToken = (req: any, res: any, next: any) => {
           discount_price: p.discount_price,
           stock_quantity: p.stock_quantity,
           low_stock_alert: p.low_stock_alert,
-          is_active: p.is_active,
-          is_new_arrival: p.is_new_arrival,
-          is_best_seller: p.is_best_seller,
+          is_active: !!p.is_active,
+          is_new_arrival: !!p.is_new_arrival,
+          is_best_seller: !!p.is_best_seller,
           created_at: p.created_at
         });
 
@@ -1840,7 +1854,7 @@ const authenticateToken = (req: any, res: any, next: any) => {
         for (const img of images) {
           await imagesRef.add({
             image_url: img.image_url,
-            is_main: img.is_main,
+            is_main: !!img.is_main,
             display_order: img.display_order
           });
         }
@@ -1901,7 +1915,7 @@ const authenticateToken = (req: any, res: any, next: any) => {
       res.sendFile(indexPath, (err) => {
         if (err) {
           console.error("Error sending index.html:", err);
-          res.status(500).send("Internal Server Error: Failed to send index.html");
+          res.status(500).json({ error: "Internal Server Error", message: "Failed to send index.html" });
         }
       });
     });
@@ -1914,7 +1928,10 @@ const authenticateToken = (req: any, res: any, next: any) => {
       });
       app.use(vite.middlewares);
     } else {
-      res.status(500).send("Internal Server Error: Production build missing and Vite middleware unavailable.");
+      console.error("Production build missing and Vite middleware unavailable.");
+      app.get("*", (req, res) => {
+        res.status(500).json({ error: "Internal Server Error", message: "Production build missing and Vite middleware unavailable." });
+      });
     }
   }
 
