@@ -1,13 +1,29 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID
-};
+// Import the Firebase configuration
+import firebaseConfig from './firebase-applet-config.json';
 
+// Initialize Firebase SDK
 const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const auth = getAuth(app);
+
+// Validate Connection to Firestore
+async function testConnection() {
+  try {
+    // Try to get a non-existent doc to test connection
+    await getDocFromServer(doc(db, 'test', 'connection'));
+    console.log("Firestore connection test successful.");
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error("Please check your Firebase configuration. The client is offline.");
+    }
+    // Skip logging for other errors (like 404), as this is simply a connection test.
+  }
+}
+
+testConnection();
+
 export default app;
