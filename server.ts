@@ -4,6 +4,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import cors from "cors";
 import db from "./db.ts";
+import { adminDb, adminAuth } from "./src/firebase-admin.ts";
+import { FieldValue } from "firebase-admin/firestore";
 import { v4 as uuidv4 } from "uuid";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
@@ -20,11 +22,13 @@ const JWT_SECRET = "dacca-threads-secret-key-2024";
 // Email Transporter
 const createTransporter = async () => {
   try {
-    const settings = db.prepare("SELECT * FROM site_settings WHERE key LIKE 'SMTP_%'").all() as any[];
-    const smtp = settings.reduce((acc, curr) => {
-      acc[curr.key] = curr.value;
-      return acc;
-    }, {});
+    const settingsSnapshot = await adminDb.collection('site_settings').get();
+    const smtp: any = {};
+    settingsSnapshot.forEach(doc => {
+      if (doc.id.startsWith('SMTP_')) {
+        smtp[doc.id] = doc.data().value;
+      }
+    });
 
     const host = (smtp.SMTP_HOST || process.env.SMTP_HOST || "").trim();
     const port = (smtp.SMTP_PORT || process.env.SMTP_PORT || "").trim();
@@ -88,20 +92,76 @@ const createTransporter = async () => {
   return null;
 };
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+export const app = express();
+const PORT = 3000;
 
-  app.use(cors());
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(cors());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-  let transporter = await createTransporter();
+let transporter: any = null;
 
-  // Helper to refresh transporter when settings change
-  const refreshTransporter = async () => {
-    transporter = await createTransporter();
-  };
+// Helper to refresh transporter when settings change
+const refreshTransporter = async () => {
+  transporter = await createTransporter();
+};
+
+async function initServer() {
+  transporter = await createTransporter();
+
+  // Seed Firestore if empty
+  try {
+    const settingsSnapshot = await adminDb.collection('site_settings').limit(1).get();
+    if (settingsSnapshot.empty) {
+      console.log("[STARTUP] Firestore is empty. Seeding from SQLite...");
+      
+      // Seed categories
+      const categories = db.prepare("SELECT * FROM categories").all() as any[];
+      for (const cat of categories) {
+        await adminDb.collection('categories').doc(cat.id.toString()).set(cat);
+      }
+
+      // Seed products
+      const products = db.prepare("SELECT * FROM products").all() as any[];
+      for (const p of products) {
+        await adminDb.collection('products').doc(p.id.toString()).set(p);
+        
+        const images = db.prepare("SELECT * FROM product_images WHERE product_id = ?").all(p.id) as any[];
+        for (const img of images) {
+          await adminDb.collection(`products/${p.id}/images`).doc(img.id.toString()).set(img);
+        }
+
+        const variants = db.prepare("SELECT * FROM product_variants WHERE product_id = ?").all(p.id) as any[];
+        for (const v of variants) {
+          await adminDb.collection(`products/${p.id}/variants`).doc(v.id.toString()).set(v);
+        }
+      }
+
+      // Seed banners
+      const banners = db.prepare("SELECT * FROM hero_banners").all() as any[];
+      for (const b of banners) {
+        await adminDb.collection('hero_banners').doc(b.id.toString()).set(b);
+      }
+
+      // Seed settings
+      const settings = db.prepare("SELECT * FROM site_settings").all() as any[];
+      for (const s of settings) {
+        await adminDb.collection('site_settings').doc(s.key).set({ value: s.value });
+      }
+
+      // Seed pages
+      const pages = db.prepare("SELECT * FROM pages").all() as any[];
+      for (const pg of pages) {
+        await adminDb.collection('pages').doc(pg.slug).set(pg);
+      }
+
+      console.log("[STARTUP] Firestore seeding completed.");
+    } else {
+      console.log("[STARTUP] Firestore already contains data.");
+    }
+  } catch (error) {
+    console.error("[STARTUP] Firestore seeding error:", error);
+  }
 
   // Verify DB connection and OTPS table
   try {
@@ -110,9 +170,12 @@ async function startServer() {
   } catch (error) {
     console.error("[STARTUP] Database error:", error);
   }
+}
 
-  // Auth Middleware
-  const authenticateToken = (req: any, res: any, next: any) => {
+initServer();
+
+// Auth Middleware
+const authenticateToken = (req: any, res: any, next: any) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -229,13 +292,13 @@ async function startServer() {
   });
 
   // Site Settings & Pages
-  app.get("/api/site-settings", (req, res) => {
+  app.get("/api/site-settings", async (req, res) => {
     try {
-      const settings = db.prepare("SELECT * FROM site_settings").all() as any[];
-      const settingsMap = settings.reduce((acc, curr) => {
-        acc[curr.key] = curr.value;
-        return acc;
-      }, {});
+      const snapshot = await adminDb.collection('site_settings').get();
+      const settingsMap: any = {};
+      snapshot.forEach(doc => {
+        settingsMap[doc.id] = doc.data().value;
+      });
       res.json(settingsMap);
     } catch (error) {
       console.error("Failed to fetch site settings:", error);
@@ -614,9 +677,10 @@ async function startServer() {
   });
 
   // Categories
-  app.get("/api/categories", (req, res) => {
+  app.get("/api/categories", async (req, res) => {
     try {
-      const categories = db.prepare("SELECT * FROM categories ORDER BY name ASC").all();
+      const snapshot = await adminDb.collection('categories').get();
+      const categories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       res.json(categories);
     } catch (error) {
       console.error("Categories error:", error);
@@ -625,51 +689,48 @@ async function startServer() {
   });
 
   // Products
-  app.get("/api/products", (req, res) => {
+  app.get("/api/products", async (req, res) => {
     try {
-      const { category, featured, limit, search, minPrice, maxPrice } = req.query;
-      let query = "SELECT p.*, c.name as category_name FROM products p JOIN categories c ON p.category_id = c.id WHERE p.is_active = 1";
-      const params: any[] = [];
+      const { category, featured, limit: limitVal, search, minPrice, maxPrice } = req.query;
+      let q: any = adminDb.collection('products').where('is_active', '==', true);
 
       if (category) {
-        query += " AND c.slug = ?";
-        params.push(category);
+        const catSnapshot = await adminDb.collection('categories').where('slug', '==', category).limit(1).get();
+        if (!catSnapshot.empty) {
+          q = q.where('category_id', '==', catSnapshot.docs[0].id);
+        }
       }
-      if (featured) {
-        query += " AND p.is_best_seller = 1";
+
+      if (featured === 'true') {
+        q = q.where('is_best_seller', '==', true);
       }
+
+      const snapshot = await q.get();
+      let products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
       if (search) {
-        query += " AND (p.name LIKE ? OR p.description LIKE ?)";
-        params.push(`%${search}%`, `%${search}%`);
-      }
-      if (minPrice) {
-        query += " AND p.base_price >= ?";
-        params.push(Number(minPrice));
-      }
-      if (maxPrice) {
-        query += " AND p.base_price <= ?";
-        params.push(Number(maxPrice));
-      }
-      
-      query += " ORDER BY p.created_at DESC";
-      
-      if (limit) {
-        query += " LIMIT ?";
-        params.push(Number(limit));
+        const s = (search as string).toLowerCase();
+        products = products.filter(p => p.name.toLowerCase().includes(s) || p.description?.toLowerCase().includes(s));
       }
 
-      const products = db.prepare(query).all(...params);
-      
-      // Attach images and variants to each product
-      const productsWithDetails = products.map((p: any) => {
-        const images = db.prepare("SELECT * FROM product_images WHERE product_id = ? ORDER BY display_order ASC").all(p.id);
-        const variants = db.prepare("SELECT * FROM product_variants WHERE product_id = ?").all(p.id);
-        return { ...p, images, variants };
-      });
+      if (minPrice) products = products.filter(p => p.base_price >= parseFloat(minPrice as string));
+      if (maxPrice) products = products.filter(p => p.base_price <= parseFloat(maxPrice as string));
 
-      res.json(productsWithDetails);
+      if (limitVal) products = products.slice(0, parseInt(limitVal as string));
+
+      const fullProducts = await Promise.all(products.map(async (p: any) => {
+        const imagesSnapshot = await adminDb.collection(`products/${p.id}/images`).orderBy('display_order', 'asc').get();
+        const variantsSnapshot = await adminDb.collection(`products/${p.id}/variants`).get();
+        return {
+          ...p,
+          images: imagesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+          variants: variantsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+        };
+      }));
+
+      res.json(fullProducts);
     } catch (error) {
-      console.error("Products error:", error);
+      console.error("Fetch products error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -690,9 +751,13 @@ async function startServer() {
   });
 
   // Banners
-  app.get("/api/banners", (req, res) => {
+  app.get("/api/banners", async (req, res) => {
     try {
-      const banners = db.prepare("SELECT * FROM hero_banners WHERE is_active = 1 ORDER BY priority ASC").all();
+      const snapshot = await adminDb.collection('hero_banners')
+        .where('is_active', '==', true)
+        .orderBy('priority', 'asc')
+        .get();
+      const banners = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       res.json(banners);
     } catch (error) {
       console.error("Banners error:", error);
@@ -701,9 +766,10 @@ async function startServer() {
   });
 
   // Shipping Rules
-  app.get("/api/shipping-rules", (req, res) => {
+  app.get("/api/shipping-rules", async (req, res) => {
     try {
-      const rules = db.prepare("SELECT * FROM shipping_rules").all();
+      const snapshot = await adminDb.collection('shipping_rules').get();
+      const rules = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       res.json(rules);
     } catch (error) {
       console.error("Shipping rules error:", error);
@@ -757,7 +823,7 @@ async function startServer() {
   });
 
   // Orders
-  app.post("/api/orders", authenticateToken, (req: any, res) => {
+  app.post("/api/orders", authenticateToken, async (req: any, res) => {
     const { 
       customer_name, 
       customer_phone, 
@@ -776,51 +842,86 @@ async function startServer() {
     const user_id = req.user.id;
     const orderId = uuidv4();
     
-    const insertOrder = db.prepare(`
-      INSERT INTO orders (id, order_number, user_id, customer_name, customer_phone, shipping_address, district, subtotal, shipping_charge, discount_amount, total_amount, payment_method, bkash_trx_id, promo_code)
-      VALUES (?, (SELECT COALESCE(MAX(order_number), 1000) + 1 FROM orders), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+    try {
+      // Get next order number (Firestore doesn't have auto-increment)
+      const ordersSnapshot = await adminDb.collection('orders').orderBy('order_number', 'desc').limit(1).get();
+      let nextOrderNumber = 1001;
+      if (!ordersSnapshot.empty) {
+        nextOrderNumber = (ordersSnapshot.docs[0].data().order_number || 1000) + 1;
+      }
 
-    const insertOrderItem = db.prepare(`
-      INSERT INTO order_items (order_id, variant_id, quantity, price_at_time)
-      VALUES (?, ?, ?, ?)
-    `);
+      const orderData = {
+        order_number: nextOrderNumber,
+        user_id,
+        customer_name,
+        customer_phone,
+        shipping_address,
+        district,
+        subtotal,
+        shipping_charge,
+        discount_amount,
+        total_amount,
+        payment_method,
+        bkash_trx_id,
+        promo_code,
+        order_status: 'pending',
+        payment_status: 'pending',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
 
-    const transaction = db.transaction(() => {
-      insertOrder.run(orderId, user_id, customer_name, customer_phone, shipping_address, district, subtotal, shipping_charge, discount_amount, total_amount, payment_method, bkash_trx_id, promo_code);
-      
+      await adminDb.collection('orders').doc(orderId).set(orderData);
+
+      // Add items
       for (const item of items) {
-        insertOrderItem.run(orderId, item.variant_id, item.quantity, item.price);
-        // Update stock in both variants and products
-        db.prepare("UPDATE product_variants SET stock_quantity = stock_quantity - ? WHERE id = ?").run(item.quantity, item.variant_id);
-        db.prepare(`
-          UPDATE products 
-          SET stock_quantity = stock_quantity - ? 
-          WHERE id = (SELECT product_id FROM product_variants WHERE id = ?)
-        `).run(item.quantity, item.variant_id);
+        await adminDb.collection(`orders/${orderId}/items`).add({
+          variant_id: item.variant_id,
+          quantity: item.quantity,
+          price_at_time: item.price
+        });
+
+        // Update stock in Firestore (this assumes products and variants are in Firestore)
+        // For now, we'll just log or attempt update if they exist
+        try {
+          const productRef = adminDb.collection('products').doc(item.product_id);
+          const productDoc = await productRef.get();
+          if (productDoc.exists) {
+            await productRef.update({ stock_quantity: FieldValue.increment(-item.quantity) });
+          }
+          
+          const variantRef = adminDb.collection(`products/${item.product_id}/variants`).doc(item.variant_id);
+          const variantDoc = await variantRef.get();
+          if (variantDoc.exists) {
+            await variantRef.update({ stock_quantity: FieldValue.increment(-item.quantity) });
+          }
+        } catch (stockErr) {
+          console.warn("Stock update failed (might not be in Firestore yet):", stockErr);
+        }
       }
 
       // Increment promo code usage
       if (promo_code) {
-        db.prepare("UPDATE promo_codes SET used_count = used_count + 1 WHERE code = ?").run(promo_code);
-      }
-    });
-
-    try {
-      transaction();
-      
-      // Get the created order for email
-      const newOrder = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
-      
-      // If user_id is present, get user email
-      if (user_id) {
-        const user = db.prepare("SELECT * FROM users WHERE id = ?").get(user_id) as any;
-        if (user && user.email) {
-          sendOrderConfirmationEmail(newOrder, user);
+        try {
+          await adminDb.collection('promo_codes').doc(promo_code).update({
+            used_count: FieldValue.increment(1)
+          });
+        } catch (promoErr) {
+          console.warn("Promo code update failed:", promoErr);
         }
       }
 
-      res.json({ success: true, orderId, orderNumber: newOrder.order_number });
+      // Send email
+      if (user_id) {
+        const userSnapshot = await adminDb.collection('users').doc(user_id).get();
+        if (userSnapshot.exists) {
+          const userData = userSnapshot.data();
+          if (userData?.email) {
+            sendOrderConfirmationEmail({ ...orderData, id: orderId }, userData);
+          }
+        }
+      }
+
+      res.json({ success: true, orderId, orderNumber: nextOrderNumber });
     } catch (error) {
       console.error("Order creation failed:", error);
       res.status(500).json({ error: "Failed to create order" });
@@ -1512,10 +1613,20 @@ async function startServer() {
     }
   });
 
+  // Global Error Handler
+  app.use((err: any, req: any, res: any, next: any) => {
+    console.error("Unhandled Error:", err);
+    res.status(500).json({ 
+      error: "Internal Server Error", 
+      message: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
+  });
+
   // Vite middleware for development
   const isProduction = process.env.NODE_ENV === "production" || process.env.VITE_USER_NODE_ENV === "production";
   
-  if (!isProduction) {
+  if (!isProduction && process.env.VERCEL !== "1") {
     console.log("Starting in DEVELOPMENT mode (Vite middleware enabled)");
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1532,17 +1643,25 @@ async function startServer() {
     app.get("*", (req, res) => {
       res.sendFile(indexPath, (err) => {
         if (err) {
-          console.error("Error sending index.html:", err);
-          res.status(500).send("Internal Server Error: Missing index.html");
+          // If index.html is missing, it might be because we are in a serverless function
+          // and the static files are served by the platform.
+          if (process.env.VERCEL === "1") {
+            res.status(404).send("Not Found");
+          } else {
+            console.error("Error sending index.html:", err);
+            res.status(500).send("Internal Server Error: Missing index.html");
+          }
         }
       });
     });
   }
 
+if (process.env.VERCEL !== "1") {
+  const PORT = 3000;
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
     console.log("Environment:", process.env.NODE_ENV || "development");
   });
 }
 
-startServer();
+export default app;

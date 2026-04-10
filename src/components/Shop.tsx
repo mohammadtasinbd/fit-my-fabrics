@@ -3,6 +3,8 @@ import { Product, Category } from '../types';
 import { ProductCard } from './Home';
 import { Search, SlidersHorizontal, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { db } from '../firebase';
+import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
 
 export function Shop() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -17,31 +19,69 @@ export function Shop() {
   const [sortBy, setSortBy] = useState('newest');
 
   useEffect(() => {
-    fetch('/api/categories')
-      .then(res => res.json())
-      .catch(() => [])
-      .then(setCategories);
+    const fetchCategories = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, 'categories'));
+        setCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any as Category)));
+      } catch (error) {
+        console.error("Error fetching categories:", error);
+      }
+    };
+    fetchCategories();
   }, []);
 
   useEffect(() => {
-    setLoading(true);
-    const params = new URLSearchParams();
-    if (selectedCategory) params.append('category', selectedCategory);
-    if (search) params.append('search', search);
-    if (priceRange[0] > 0) params.append('minPrice', priceRange[0].toString());
-    if (priceRange[1] < 10000) params.append('maxPrice', priceRange[1].toString());
+    const fetchProducts = async () => {
+      setLoading(true);
+      try {
+        let q = query(collection(db, 'products'), where('is_active', '==', true));
+        
+        // Note: Firestore has limitations on multiple inequality filters and combined filters.
+        // For simplicity and to avoid complex index requirements, we'll filter some things client-side if needed,
+        // but let's try basic category filtering first.
+        if (selectedCategory) {
+          // We need the category ID, but the state stores the slug.
+          const cat = categories.find(c => c.slug === selectedCategory);
+          if (cat) {
+            q = query(q, where('category_id', '==', cat.id));
+          }
+        }
 
-    fetch(`/api/products?${params.toString()}`)
-      .then(res => res.json())
-      .catch(() => [])
-      .then(data => {
-        let sorted = [...data];
-        if (sortBy === 'price-low') sorted.sort((a, b) => a.base_price - b.base_price);
-        if (sortBy === 'price-high') sorted.sort((a, b) => b.base_price - a.base_price);
-        setProducts(sorted);
-      })
-      .finally(() => setLoading(false));
-  }, [selectedCategory, search, priceRange, sortBy]);
+        const snapshot = await getDocs(q);
+        const productsData = await Promise.all(snapshot.docs.map(async (doc) => {
+          const p = { id: doc.id, ...doc.data() } as Product;
+          const imagesSnapshot = await getDocs(query(collection(db, `products/${doc.id}/images`), orderBy('display_order', 'asc')));
+          const variantsSnapshot = await getDocs(collection(db, `products/${doc.id}/variants`));
+          return {
+            ...p,
+            images: imagesSnapshot.docs.map(imgDoc => ({ id: imgDoc.id, ...imgDoc.data() })),
+            variants: variantsSnapshot.docs.map(vDoc => ({ id: vDoc.id, ...vDoc.data() }))
+          };
+        }));
+
+        // Client-side filtering for search and price range
+        let filtered = productsData.filter(p => {
+          const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) || 
+                               p.description?.toLowerCase().includes(search.toLowerCase());
+          const matchesPrice = p.base_price >= priceRange[0] && p.base_price <= priceRange[1];
+          return matchesSearch && matchesPrice;
+        });
+
+        // Sorting
+        if (sortBy === 'price-low') filtered.sort((a, b) => a.base_price - b.base_price);
+        else if (sortBy === 'price-high') filtered.sort((a, b) => b.base_price - a.base_price);
+        else filtered.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+
+        setProducts(filtered);
+      } catch (error) {
+        console.error("Error fetching products:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProducts();
+  }, [selectedCategory, search, priceRange, sortBy, categories]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">

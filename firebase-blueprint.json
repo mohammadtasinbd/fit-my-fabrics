@@ -1,0 +1,264 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "role": { "type": "string", "enum": ["customer", "admin"] },
+        "status": { "type": "string", "enum": ["active", "blocked"] },
+        "is_master": { "type": "boolean" },
+        "permissions": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "phone", "email"]
+    },
+    "OTP": {
+      "title": "OTP",
+      "description": "One-time password for authentication",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "otp": { "type": "string" },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "otp", "expires_at"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Product category",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "image_url": { "type": "string" },
+        "is_featured": { "type": "boolean" }
+      },
+      "required": ["name", "slug"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Product information",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "sku": { "type": "string" },
+        "category_id": { "type": "string" },
+        "description": { "type": "string" },
+        "short_description": { "type": "string" },
+        "fabric_details": { "type": "string" },
+        "gsm": { "type": "string" },
+        "material_composition": { "type": "string" },
+        "fit_type": { "type": "string" },
+        "weight": { "type": "string" },
+        "base_price": { "type": "number" },
+        "cost_price": { "type": "number" },
+        "discount_price": { "type": "number" },
+        "stock_quantity": { "type": "number" },
+        "low_stock_alert": { "type": "number" },
+        "is_active": { "type": "boolean" },
+        "is_new_arrival": { "type": "boolean" },
+        "is_best_seller": { "type": "boolean" },
+        "color_group_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "slug", "base_price"]
+    },
+    "ProductVariant": {
+      "title": "Product Variant",
+      "description": "Specific variant of a product (size/color)",
+      "type": "object",
+      "properties": {
+        "size": { "type": "string" },
+        "color": { "type": "string" },
+        "color_code": { "type": "string" },
+        "sku": { "type": "string" },
+        "stock_quantity": { "type": "number" },
+        "additional_price": { "type": "number" }
+      }
+    },
+    "ProductImage": {
+      "title": "Product Image",
+      "description": "Image for a product",
+      "type": "object",
+      "properties": {
+        "image_url": { "type": "string" },
+        "is_main": { "type": "boolean" },
+        "display_order": { "type": "number" }
+      }
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer order",
+      "type": "object",
+      "properties": {
+        "order_number": { "type": "number" },
+        "user_id": { "type": "string" },
+        "customer_name": { "type": "string" },
+        "customer_phone": { "type": "string" },
+        "shipping_address": { "type": "string" },
+        "district": { "type": "string" },
+        "subtotal": { "type": "number" },
+        "shipping_charge": { "type": "number" },
+        "discount_amount": { "type": "number" },
+        "total_amount": { "type": "number" },
+        "paid_amount": { "type": "number" },
+        "payment_method": { "type": "string", "enum": ["COD", "bKash"] },
+        "payment_status": { "type": "string" },
+        "order_status": { "type": "string" },
+        "bkash_trx_id": { "type": "string" },
+        "promo_code": { "type": "string" },
+        "payment_remarks": { "type": "string" },
+        "is_active": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customer_name", "customer_phone", "shipping_address", "total_amount"]
+    },
+    "OrderItem": {
+      "title": "OrderItem",
+      "description": "Item within an order",
+      "type": "object",
+      "properties": {
+        "variant_id": { "type": "string" },
+        "quantity": { "type": "number" },
+        "price_at_time": { "type": "number" }
+      }
+    },
+    "Banner": {
+      "title": "Banner",
+      "description": "Homepage hero banner",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "image_url": { "type": "string" },
+        "link_url": { "type": "string" },
+        "button_text": { "type": "string" },
+        "background_color": { "type": "string" },
+        "is_active": { "type": "boolean" },
+        "priority": { "type": "number" }
+      }
+    },
+    "SiteSetting": {
+      "title": "Site Setting",
+      "description": "Global site configuration",
+      "type": "object",
+      "properties": {
+        "value": { "type": "string" }
+      }
+    },
+    "Page": {
+      "title": "Page",
+      "description": "Static page content",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "ShippingRule": {
+      "title": "Shipping Rule",
+      "description": "Shipping zone and charges",
+      "type": "object",
+      "properties": {
+        "zone_name": { "type": "string" },
+        "base_charge": { "type": "number" },
+        "free_delivery_threshold": { "type": "number" },
+        "estimated_days": { "type": "string" }
+      }
+    },
+    "BulkDiscountRule": {
+      "title": "Bulk Discount Rule",
+      "description": "Discount based on quantity",
+      "type": "object",
+      "properties": {
+        "min_quantity": { "type": "number" },
+        "discount_percentage": { "type": "number" },
+        "is_active": { "type": "boolean" }
+      }
+    },
+    "PromoCode": {
+      "title": "Promo Code",
+      "description": "Discount code",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "discount_type": { "type": "string", "enum": ["percentage", "fixed"] },
+        "discount_value": { "type": "number" },
+        "min_order_amount": { "type": "number" },
+        "max_discount_amount": { "type": "number" },
+        "usage_limit": { "type": "number" },
+        "used_count": { "type": "number" },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "is_active": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/otps/{otpId}": {
+      "schema": "OTP",
+      "description": "Authentication OTPs"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Product categories"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Products"
+    },
+    "/products/{productId}/variants/{variantId}": {
+      "schema": "ProductVariant",
+      "description": "Product variants"
+    },
+    "/products/{productId}/images/{imageId}": {
+      "schema": "ProductImage",
+      "description": "Product images"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Customer orders"
+    },
+    "/orders/{orderId}/items/{itemId}": {
+      "schema": "OrderItem",
+      "description": "Order items"
+    },
+    "/hero_banners/{bannerId}": {
+      "schema": "Banner",
+      "description": "Homepage banners"
+    },
+    "/site_settings/{settingKey}": {
+      "schema": "SiteSetting",
+      "description": "Site settings"
+    },
+    "/pages/{pageSlug}": {
+      "schema": "Page",
+      "description": "Static pages"
+    },
+    "/shipping_rules/{ruleId}": {
+      "schema": "ShippingRule",
+      "description": "Shipping rules"
+    },
+    "/bulk_discount_rules/{ruleId}": {
+      "schema": "BulkDiscountRule",
+      "description": "Bulk discount rules"
+    },
+    "/promo_codes/{codeId}": {
+      "schema": "PromoCode",
+      "description": "Promo codes"
+    }
+  }
+}

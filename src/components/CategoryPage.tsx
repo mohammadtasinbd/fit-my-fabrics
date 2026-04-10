@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { Product } from '../types';
 import { ShoppingBag, ArrowRight, Clock } from 'lucide-react';
+import { db } from '../firebase';
+import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
 
 export function CategoryPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -18,10 +20,30 @@ export function CategoryPage() {
     }
 
     const fetchProducts = async () => {
+      setLoading(true);
       try {
-        const response = await fetch(`/api/products?category=${slug}`);
-        const data = await response.json().catch(() => []);
-        setProducts(Array.isArray(data) ? data : []);
+        // Find category ID by slug
+        const catSnapshot = await getDocs(query(collection(db, 'categories'), where('slug', '==', slug)));
+        if (catSnapshot.empty) {
+          setProducts([]);
+          return;
+        }
+        
+        const categoryId = catSnapshot.docs[0].id;
+        const productsSnapshot = await getDocs(query(collection(db, 'products'), where('category_id', '==', categoryId), where('is_active', '==', true)));
+        
+        const productsData = await Promise.all(productsSnapshot.docs.map(async (doc) => {
+          const p = { id: doc.id, ...doc.data() } as Product;
+          const imagesSnapshot = await getDocs(query(collection(db, `products/${doc.id}/images`), orderBy('display_order', 'asc')));
+          const variantsSnapshot = await getDocs(collection(db, `products/${doc.id}/variants`));
+          return {
+            ...p,
+            images: imagesSnapshot.docs.map(imgDoc => ({ id: imgDoc.id, ...imgDoc.data() })) as any[],
+            variants: variantsSnapshot.docs.map(vDoc => ({ id: vDoc.id, ...vDoc.data() })) as any[]
+          };
+        }));
+
+        setProducts(productsData);
       } catch (error) {
         console.error('Error fetching products:', error);
       } finally {

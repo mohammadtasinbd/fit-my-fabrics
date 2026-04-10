@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User } from './types';
+import { auth, db } from './firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 
 interface AuthContextType {
   user: User | null;
@@ -7,47 +10,67 @@ interface AuthContextType {
   login: (token: string, user: User) => void;
   logout: () => void;
   isAuthenticated: boolean;
+  loading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('auth_token'));
+  const [token, setToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchUserProfile = async (uid: string) => {
+    try {
+      const docRef = doc(db, 'users', uid);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        setUser({ id: docSnap.id, ...docSnap.data() } as User);
+      } else {
+        console.warn("No user profile found in Firestore for UID:", uid);
+        setUser(null);
+      }
+    } catch (error) {
+      console.error("Error fetching user profile:", error);
+      setUser(null);
+    }
+  };
 
   useEffect(() => {
-    if (token) {
-      // Verify token and get user info
-      fetch('/api/auth/me', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
-      .then(res => {
-        if (res.ok) return res.json().catch(() => { throw new Error('Invalid JSON'); });
-        throw new Error('Invalid token');
-      })
-      .then(data => setUser(data))
-      .catch(() => {
-        logout();
-      });
-    }
-  }, [token]);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setLoading(true);
+      if (firebaseUser) {
+        const idToken = await firebaseUser.getIdToken();
+        setToken(idToken);
+        await fetchUserProfile(firebaseUser.uid);
+      } else {
+        setToken(null);
+        setUser(null);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const login = (newToken: string, newUser: User) => {
-    localStorage.setItem('auth_token', newToken);
+    // Legacy compatibility
     setToken(newToken);
     setUser(newUser);
   };
 
-  const logout = () => {
-    localStorage.removeItem('auth_token');
-    setToken(null);
-    setUser(null);
+  const logout = async () => {
+    try {
+      await signOut(auth);
+      setToken(null);
+      setUser(null);
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ user, token, login, logout, isAuthenticated: !!user, loading }}>
       {children}
     </AuthContext.Provider>
   );

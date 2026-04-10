@@ -4,6 +4,8 @@ import { ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Banner, Product, Category } from '../types';
 import { formatPrice } from '../lib/utils';
+import { db } from '../firebase';
+import { collection, getDocs, query, where, limit, orderBy } from 'firebase/firestore';
 
 export function Home() {
   const [banners, setBanners] = useState<Banner[]>([]);
@@ -12,23 +14,44 @@ export function Home() {
   const [currentBanner, setCurrentBanner] = useState(0);
 
   useEffect(() => {
-    fetch('/api/banners')
-      .then(res => res.json().catch(() => []))
-      .then(setBanners);
-    fetch('/api/products?featured=true&limit=8')
-      .then(res => res.json().catch(() => []))
-      .then(setFeaturedProducts);
-    fetch('/api/categories')
-      .then(res => res.json().catch(() => []))
-      .then((data: Category[]) => {
+    const fetchData = async () => {
+      try {
+        // Fetch Banners
+        const bannersSnapshot = await getDocs(query(collection(db, 'hero_banners'), where('is_active', '==', true), orderBy('priority', 'asc')));
+        const bannersData = bannersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any as Banner));
+        setBanners(bannersData);
+
+        // Fetch Featured Products
+        const productsSnapshot = await getDocs(query(collection(db, 'products'), where('is_active', '==', true), where('is_best_seller', '==', true), limit(8)));
+        const productsData = await Promise.all(productsSnapshot.docs.map(async (doc) => {
+          const p = { id: doc.id, ...doc.data() } as Product;
+          // Fetch images and variants for each product
+          const imagesSnapshot = await getDocs(query(collection(db, `products/${doc.id}/images`), orderBy('display_order', 'asc')));
+          const variantsSnapshot = await getDocs(collection(db, `products/${doc.id}/variants`));
+          return {
+            ...p,
+            images: imagesSnapshot.docs.map(imgDoc => ({ id: imgDoc.id, ...imgDoc.data() })),
+            variants: variantsSnapshot.docs.map(vDoc => ({ id: vDoc.id, ...vDoc.data() }))
+          };
+        }));
+        setFeaturedProducts(productsData);
+
+        // Fetch Categories
+        const categoriesSnapshot = await getDocs(collection(db, 'categories'));
+        const categoriesData = categoriesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any as Category));
         const order = ['polo', 'round-neck', 'others'];
-        const sorted = [...(Array.isArray(data) ? data : [])].sort((a, b) => {
+        const sorted = categoriesData.sort((a, b) => {
           const idxA = order.indexOf(a.slug);
           const idxB = order.indexOf(b.slug);
           return (idxA === -1 ? 99 : idxA) - (idxB === -1 ? 99 : idxB);
         });
         setCategories(sorted);
-      });
+      } catch (error) {
+        console.error("Error fetching home data:", error);
+      }
+    };
+
+    fetchData();
   }, []);
 
   useEffect(() => {

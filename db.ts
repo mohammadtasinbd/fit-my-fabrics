@@ -3,8 +3,17 @@ import path from 'path';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 
-const db = new Database('ecommerce.db');
-db.exec('PRAGMA foreign_keys = ON;');
+let db: any;
+try {
+  const dbPath = process.env.VERCEL === "1" ? path.join('/tmp', 'ecommerce.db') : 'ecommerce.db';
+  db = new Database(dbPath);
+  db.exec('PRAGMA foreign_keys = ON;');
+} catch (error) {
+  console.error("Failed to initialize database:", error);
+  // Fallback to in-memory database if file-based fails
+  db = new Database(':memory:');
+  db.exec('PRAGMA foreign_keys = ON;');
+}
 
 // Initialize the schema
 db.exec(`

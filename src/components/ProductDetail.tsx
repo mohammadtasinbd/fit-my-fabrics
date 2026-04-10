@@ -6,13 +6,14 @@ import { useCart } from '../CartContext';
 import { useAuth } from '../AuthContext';
 import { ShoppingBag, Heart, Share2, ChevronRight, Check } from 'lucide-react';
 import { motion } from 'motion/react';
+import { db } from '../firebase';
+import { collection, getDocs, query, where, limit, orderBy } from 'firebase/firestore';
 
 export function ProductDetail() {
   const { slug } = useParams();
   const { addToCart } = useCart();
   const { user } = useAuth();
   const [product, setProduct] = useState<Product | null>(null);
-  const [colorVariants, setColorVariants] = useState<Product[]>([]);
   const [discountRules, setDiscountRules] = useState<any[]>([]);
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -22,9 +23,23 @@ export function ProductDetail() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const productRes = await fetch(`/api/products/${slug}`);
-        const productData = await productRes.json().catch(() => null);
-        if (!productData) return;
+        // Fetch Product by slug
+        const productsSnapshot = await getDocs(query(collection(db, 'products'), where('slug', '==', slug), limit(1)));
+        if (productsSnapshot.empty) return;
+        
+        const productDoc = productsSnapshot.docs[0];
+        const p = { id: productDoc.id, ...productDoc.data() } as Product;
+
+        // Fetch images and variants
+        const imagesSnapshot = await getDocs(query(collection(db, `products/${productDoc.id}/images`), orderBy('display_order', 'asc')));
+        const variantsSnapshot = await getDocs(collection(db, `products/${productDoc.id}/variants`));
+        
+        const productData = {
+          ...p,
+          images: imagesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[],
+          variants: variantsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[]
+        };
+
         setProduct(productData);
         const mainImg = productData.images.find((img: any) => img.is_main)?.image_url || productData.images[0]?.image_url;
         setSelectedImage(mainImg || null);
@@ -33,8 +48,8 @@ export function ProductDetail() {
         }
 
         // Fetch discount rules
-        const rulesRes = await fetch('/api/bulk-discount-rules');
-        const rulesData = await rulesRes.json().catch(() => []);
+        const rulesSnapshot = await getDocs(collection(db, 'bulk_discount_rules'));
+        const rulesData = rulesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setDiscountRules(rulesData.filter((r: any) => r.is_active).sort((a: any, b: any) => a.min_quantity - b.min_quantity));
       } catch (err) {
         console.error('Error fetching product details:', err);

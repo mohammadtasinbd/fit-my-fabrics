@@ -6,6 +6,8 @@ import { useNavigate, Navigate } from 'react-router-dom';
 import { CheckCircle2, ChevronRight, Lock } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAuth } from '../AuthContext';
+import { db } from '../firebase';
+import { collection, getDocs } from 'firebase/firestore';
 
 export function Checkout() {
   const { cart, subtotal, totalAmount: cartTotal, discountAmount, promoCode, clearCart } = useCart();
@@ -27,7 +29,16 @@ export function Checkout() {
   });
 
   useEffect(() => {
-    fetch('/api/shipping-rules').then(res => res.json()).then(setShippingRules);
+    const fetchShippingRules = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, 'shipping_rules'));
+        const rules = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any as ShippingRule[];
+        setShippingRules(rules);
+      } catch (error) {
+        console.error('Error fetching shipping rules:', error);
+      }
+    };
+    fetchShippingRules();
   }, []);
 
   if (!user) {

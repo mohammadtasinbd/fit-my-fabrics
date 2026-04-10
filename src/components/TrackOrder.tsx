@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Package, Search, Truck, CheckCircle, Clock, MapPin, Phone, Hash, Eye, ArrowLeft } from 'lucide-react';
 import { formatPrice } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { db } from '../firebase';
+import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
 
 export function TrackOrder() {
   const [orderNumber, setOrderNumber] = useState('');
@@ -20,16 +22,29 @@ export function TrackOrder() {
     setSelectedOrder(null);
 
     try {
-      const res = await fetch(`/api/orders/track?orderNumber=${orderNumber}&phone=${phone}`);
-      const data = await res.json().catch(() => ({ error: 'Server returned an invalid response' }));
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to track order');
+      let q = query(collection(db, 'orders'), where('customer_phone', '==', phone), orderBy('created_at', 'desc'));
+      
+      if (orderNumber && orderNumber.trim() !== '') {
+        // Firestore doesn't support OR queries easily with where, so we'll filter client-side if needed
+        // or just query by order_number if provided
+        q = query(collection(db, 'orders'), where('order_number', '==', parseInt(orderNumber)), where('customer_phone', '==', phone));
       }
 
-      setOrders(Array.isArray(data) ? data : [data]);
-      if (Array.isArray(data) && data.length === 1) {
-        setSelectedOrder(data[0]);
+      const snapshot = await getDocs(q);
+      if (snapshot.empty) {
+        throw new Error('No orders found for this phone number');
+      }
+
+      const ordersData = await Promise.all(snapshot.docs.map(async (doc) => {
+        const order = { id: doc.id, ...doc.data() };
+        const itemsSnapshot = await getDocs(collection(db, `orders/${doc.id}/items`));
+        const items = itemsSnapshot.docs.map(itemDoc => ({ id: itemDoc.id, ...itemDoc.data() }));
+        return { ...order, items };
+      }));
+
+      setOrders(ordersData);
+      if (ordersData.length === 1) {
+        setSelectedOrder(ordersData[0]);
       }
     } catch (err: any) {
       setError(err.message);
