@@ -10,6 +10,7 @@ import { collection, getDocs, query, where, limit, orderBy } from 'firebase/fire
 export function Home() {
   const [banners, setBanners] = useState<Banner[]>([]);
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
+  const [newArrivals, setNewArrivals] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [currentBanner, setCurrentBanner] = useState(0);
 
@@ -21,11 +22,10 @@ export function Home() {
         const bannersData = bannersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any as Banner));
         setBanners(bannersData);
 
-        // Fetch Featured Products
+        // Fetch Featured Products (Best Sellers)
         const productsSnapshot = await getDocs(query(collection(db, 'products'), where('is_active', '==', true), where('is_best_seller', '==', true), limit(8)));
         const productsData = await Promise.all(productsSnapshot.docs.map(async (doc) => {
           const p = { id: doc.id, ...doc.data() } as Product;
-          // Fetch images and variants for each product
           const imagesSnapshot = await getDocs(query(collection(db, `products/${doc.id}/images`), orderBy('display_order', 'asc')));
           const variantsSnapshot = await getDocs(collection(db, `products/${doc.id}/variants`));
           return {
@@ -35,6 +35,20 @@ export function Home() {
           };
         }));
         setFeaturedProducts(productsData);
+
+        // Fetch New Arrivals
+        const newArrivalsSnapshot = await getDocs(query(collection(db, 'products'), where('is_active', '==', true), where('is_new_arrival', '==', true), limit(8)));
+        const newArrivalsData = await Promise.all(newArrivalsSnapshot.docs.map(async (doc) => {
+          const p = { id: doc.id, ...doc.data() } as Product;
+          const imagesSnapshot = await getDocs(query(collection(db, `products/${doc.id}/images`), orderBy('display_order', 'asc')));
+          const variantsSnapshot = await getDocs(collection(db, `products/${doc.id}/variants`));
+          return {
+            ...p,
+            images: imagesSnapshot.docs.map(imgDoc => ({ id: imgDoc.id, ...imgDoc.data() })),
+            variants: variantsSnapshot.docs.map(vDoc => ({ id: vDoc.id, ...vDoc.data() }))
+          };
+        }));
+        setNewArrivals(newArrivalsData);
 
         // Fetch Categories
         const categoriesSnapshot = await getDocs(collection(db, 'categories'));
@@ -210,22 +224,44 @@ export function Home() {
       </section>
 
       {/* Best Sellers */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-end mb-10">
-          <div>
-            <h2 className="text-3xl font-bold tracking-tighter">BEST SELLERS</h2>
-            <p className="text-gray-500 mt-2">Most loved pieces from our community</p>
-          </div>
-          <Link to="/shop" className="text-sm font-bold uppercase tracking-widest hover:underline">View All</Link>
-        </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-10">
-          {featuredProducts.map((product) => (
-            <div key={product.id}>
-              <ProductCard product={product} />
+      {featuredProducts.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-end mb-10">
+            <div>
+              <h2 className="text-3xl font-bold tracking-tighter">BEST SELLERS</h2>
+              <p className="text-gray-500 mt-2">Most loved pieces from our community</p>
             </div>
-          ))}
-        </div>
-      </section>
+            <Link to="/shop" className="text-sm font-bold uppercase tracking-widest hover:underline">View All</Link>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-10">
+            {featuredProducts.map((product) => (
+              <div key={product.id}>
+                <ProductCard product={product} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* New Arrivals */}
+      {newArrivals.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-end mb-10">
+            <div>
+              <h2 className="text-3xl font-bold tracking-tighter">NEW ARRIVALS</h2>
+              <p className="text-gray-500 mt-2">Fresh drops just for you</p>
+            </div>
+            <Link to="/shop" className="text-sm font-bold uppercase tracking-widest hover:underline">View All</Link>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-10">
+            {newArrivals.map((product) => (
+              <div key={product.id}>
+                <ProductCard product={product} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Brand Values */}
       <section className="bg-black text-white py-20">

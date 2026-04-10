@@ -735,15 +735,26 @@ const authenticateToken = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get("/api/products/:slug", (req, res) => {
+  app.get("/api/products/:slug", async (req, res) => {
     try {
-      const product = db.prepare("SELECT p.*, c.name as category_name FROM products p JOIN categories c ON p.category_id = c.id WHERE p.slug = ?").get(req.params.slug) as any;
-      if (!product) return res.status(404).json({ error: "Product not found" });
+      const snapshot = await adminDb.collection('products').where('slug', '==', req.params.slug).limit(1).get();
+      if (snapshot.empty) return res.status(404).json({ error: "Product not found" });
 
-      const images = db.prepare("SELECT * FROM product_images WHERE product_id = ? ORDER BY display_order ASC").all(product.id);
-      const variants = db.prepare("SELECT * FROM product_variants WHERE product_id = ?").all(product.id);
+      const doc = snapshot.docs[0];
+      const product = { id: doc.id, ...doc.data() } as any;
+
+      const imagesSnapshot = await adminDb.collection(`products/${doc.id}/images`).orderBy('display_order', 'asc').get();
+      const variantsSnapshot = await adminDb.collection(`products/${doc.id}/variants`).get();
       
-      res.json({ ...product, images, variants });
+      const categorySnapshot = await adminDb.collection('categories').doc(product.category_id).get();
+      const categoryName = categorySnapshot.exists ? categorySnapshot.data()?.name : 'Uncategorized';
+
+      res.json({ 
+        ...product, 
+        category_name: categoryName,
+        images: imagesSnapshot.docs.map(d => ({ id: d.id, ...d.data() })),
+        variants: variantsSnapshot.docs.map(d => ({ id: d.id, ...d.data() }))
+      });
     } catch (error) {
       console.error("Product detail error:", error);
       res.status(500).json({ error: "Internal server error" });
@@ -1259,6 +1270,14 @@ const authenticateToken = (req: any, res: any, next: any) => {
 
       db.prepare("INSERT INTO categories (name, slug, image_url, is_featured) VALUES (?, ?, ?, ?)")
         .run(name, slug, image_url, is_featured ? 1 : 0);
+      
+      const categoryId = db.prepare("SELECT last_insert_rowid() as id").get() as { id: number };
+      
+      // Sync to Firestore
+      adminDb.collection('categories').doc(categoryId.id.toString()).set({
+        name, slug, image_url, is_featured: is_featured ? 1 : 0
+      }).catch(err => console.error("Firestore sync error (category create):", err));
+
       res.json({ success: true });
     } catch (error) {
       console.error("Create category error:", error);
@@ -1283,6 +1302,12 @@ const authenticateToken = (req: any, res: any, next: any) => {
 
       db.prepare("UPDATE categories SET name = ?, slug = ?, image_url = ?, is_featured = ? WHERE id = ?")
         .run(name, slug, image_url, is_featured ? 1 : 0, req.params.id);
+      
+      // Sync to Firestore
+      adminDb.collection('categories').doc(req.params.id).set({
+        name, slug, image_url, is_featured: is_featured ? 1 : 0
+      }, { merge: true }).catch(err => console.error("Firestore sync error (category update):", err));
+
       res.json({ success: true });
     } catch (error) {
       console.error("Update category error:", error);
@@ -1303,6 +1328,11 @@ const authenticateToken = (req: any, res: any, next: any) => {
       }
 
       db.prepare("DELETE FROM categories WHERE id = ?").run(categoryId);
+      
+      // Sync to Firestore
+      adminDb.collection('categories').doc(categoryId.toString()).delete()
+        .catch(err => console.error("Firestore sync error (category delete):", err));
+
       res.json({ success: true });
     } catch (error) {
       console.error("Delete category error:", error);
@@ -1328,6 +1358,14 @@ const authenticateToken = (req: any, res: any, next: any) => {
       const { title, subtitle, image_url, link_url, priority, is_active, button_text, background_color } = req.body;
       db.prepare("INSERT INTO hero_banners (title, subtitle, image_url, link_url, priority, is_active, button_text, background_color) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
         .run(title, subtitle, image_url, link_url, priority, is_active ? 1 : 0, button_text, background_color);
+      
+      const bannerId = db.prepare("SELECT last_insert_rowid() as id").get() as { id: number };
+
+      // Sync to Firestore
+      adminDb.collection('hero_banners').doc(bannerId.id.toString()).set({
+        title, subtitle, image_url, link_url, priority, is_active: is_active ? 1 : 0, button_text, background_color
+      }).catch(err => console.error("Firestore sync error (banner create):", err));
+
       res.json({ success: true });
     } catch (error) {
       console.error("Create banner error:", error);
@@ -1341,6 +1379,12 @@ const authenticateToken = (req: any, res: any, next: any) => {
       const { title, subtitle, image_url, link_url, priority, is_active, button_text, background_color } = req.body;
       db.prepare("UPDATE hero_banners SET title = ?, subtitle = ?, image_url = ?, link_url = ?, priority = ?, is_active = ?, button_text = ?, background_color = ? WHERE id = ?")
         .run(title, subtitle, image_url, link_url, priority, is_active ? 1 : 0, button_text, background_color, req.params.id);
+      
+      // Sync to Firestore
+      adminDb.collection('hero_banners').doc(req.params.id).set({
+        title, subtitle, image_url, link_url, priority, is_active: is_active ? 1 : 0, button_text, background_color
+      }, { merge: true }).catch(err => console.error("Firestore sync error (banner update):", err));
+
       res.json({ success: true });
     } catch (error) {
       console.error("Update banner error:", error);
@@ -1352,6 +1396,11 @@ const authenticateToken = (req: any, res: any, next: any) => {
     try {
       if (req.user.role !== 'admin') return res.status(403).json({ error: "Forbidden" });
       db.prepare("DELETE FROM hero_banners WHERE id = ?").run(Number(req.params.id));
+      
+      // Sync to Firestore
+      adminDb.collection('hero_banners').doc(req.params.id).delete()
+        .catch(err => console.error("Firestore sync error (banner delete):", err));
+
       res.json({ success: true });
     } catch (error) {
       console.error("Delete banner error:", error);
@@ -1410,7 +1459,24 @@ const authenticateToken = (req: any, res: any, next: any) => {
   });
 
   // Admin Products
-  app.post("/api/admin/products", authenticateToken, (req: any, res) => {
+  app.get("/api/admin/products", authenticateToken, isAdmin, (req, res) => {
+    try {
+      const products = db.prepare("SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.created_at DESC").all() as any[];
+      
+      const fullProducts = products.map(p => {
+        const images = db.prepare("SELECT * FROM product_images WHERE product_id = ? ORDER BY display_order ASC").all(p.id);
+        const variants = db.prepare("SELECT * FROM product_variants WHERE product_id = ?").all(p.id);
+        return { ...p, images, variants };
+      });
+      
+      res.json(fullProducts);
+    } catch (error) {
+      console.error("Admin fetch products error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/products", authenticateToken, async (req: any, res) => {
     try {
       if (req.user.role !== 'admin') return res.status(403).json({ error: "Forbidden" });
       const { 
@@ -1477,19 +1543,56 @@ const authenticateToken = (req: any, res: any, next: any) => {
             insertVariant.run(uuidv4(), productId, v.size, v.color, v.color_code, v.sku, v.stock_quantity, v.additional_price);
           });
         } else if (req.body.sizes && req.body.sizes.length > 0) {
-          // Create variants from sizes if no explicit variants provided
           const insertVariant = db.prepare("INSERT INTO product_variants (id, product_id, size, color, color_code, sku, stock_quantity, additional_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
           req.body.sizes.forEach((size: string) => {
             insertVariant.run(uuidv4(), productId, size, null, null, `${sku}-${size}`, stock_quantity, 0);
           });
         } else {
-          // Create a default variant if nothing else provided
           const insertVariant = db.prepare("INSERT INTO product_variants (id, product_id, size, color, color_code, sku, stock_quantity, additional_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
           insertVariant.run(uuidv4(), productId, 'Default', null, null, sku, stock_quantity, 0);
         }
       });
 
       transaction();
+
+      // Sync to Firestore (outside transaction)
+      try {
+        await adminDb.collection('products').doc(productId).set({
+          name, slug, sku, description, category_id, 
+          gsm, material_composition, fit_type, weight,
+          base_price, cost_price, discount_price, 
+          stock_quantity: finalStock, low_stock_alert,
+          is_active: is_active ? 1 : 0, 
+          is_new_arrival: is_new_arrival ? 1 : 0, 
+          is_best_seller: is_best_seller ? 1 : 0,
+          created_at: new Date().toISOString()
+        });
+
+        if (images && images.length > 0) {
+          for (const [idx, img] of images.entries()) {
+            await adminDb.collection(`products/${productId}/images`).add({
+              image_url: img.image_url,
+              is_main: img.is_main ? 1 : 0,
+              display_order: idx
+            });
+          }
+        }
+
+        if (variants && variants.length > 0) {
+          for (const v of variants) {
+            await adminDb.collection(`products/${productId}/variants`).add({
+              size: v.size,
+              color: v.color,
+              color_code: v.color_code,
+              sku: v.sku,
+              stock_quantity: v.stock_quantity,
+              additional_price: v.additional_price
+            });
+          }
+        }
+      } catch (firestoreErr) {
+        console.error("Firestore sync error (product create):", firestoreErr);
+      }
       res.json({ success: true, productId });
     } catch (error) {
       console.error("Create product error:", error);
@@ -1497,7 +1600,7 @@ const authenticateToken = (req: any, res: any, next: any) => {
     }
   });
 
-  app.patch("/api/admin/products/:id", authenticateToken, (req: any, res) => {
+  app.patch("/api/admin/products/:id", authenticateToken, async (req: any, res) => {
     try {
       if (req.user.role !== 'admin') return res.status(403).json({ error: "Forbidden" });
       const { 
@@ -1576,6 +1679,52 @@ const authenticateToken = (req: any, res: any, next: any) => {
       });
 
       transaction();
+
+      // Sync to Firestore (outside transaction)
+      try {
+        await adminDb.collection('products').doc(req.params.id).set({
+          name, slug, sku, description, category_id, 
+          gsm, material_composition, fit_type, weight,
+          base_price, cost_price, discount_price, 
+          stock_quantity: finalStock, low_stock_alert,
+          is_active: is_active ? 1 : 0, 
+          is_new_arrival: is_new_arrival ? 1 : 0, 
+          is_best_seller: is_best_seller ? 1 : 0,
+          updated_at: new Date().toISOString()
+        }, { merge: true });
+
+        // Refresh images and variants in Firestore
+        const imagesRef = adminDb.collection(`products/${req.params.id}/images`);
+        const imagesSnap = await imagesRef.get();
+        for (const doc of imagesSnap.docs) await doc.ref.delete();
+        if (images && images.length > 0) {
+          for (const [idx, img] of images.entries()) {
+            await imagesRef.add({
+              image_url: img.image_url,
+              is_main: img.is_main ? 1 : 0,
+              display_order: idx
+            });
+          }
+        }
+
+        const variantsRef = adminDb.collection(`products/${req.params.id}/variants`);
+        const variantsSnap = await variantsRef.get();
+        for (const doc of variantsSnap.docs) await doc.ref.delete();
+        if (variants && variants.length > 0) {
+          for (const v of variants) {
+            await variantsRef.add({
+              size: v.size,
+              color: v.color,
+              color_code: v.color_code,
+              sku: v.sku,
+              stock_quantity: v.stock_quantity,
+              additional_price: v.additional_price
+            });
+          }
+        }
+      } catch (firestoreErr) {
+        console.error("Firestore sync error (product update):", firestoreErr);
+      }
       res.json({ success: true });
     } catch (error) {
       console.error("Update product error:", error);
@@ -1583,7 +1732,7 @@ const authenticateToken = (req: any, res: any, next: any) => {
     }
   });
 
-  app.delete("/api/admin/products/:id", authenticateToken, (req: any, res) => {
+  app.delete("/api/admin/products/:id", authenticateToken, async (req: any, res) => {
     try {
       if (req.user.role !== 'admin') return res.status(403).json({ error: "Forbidden" });
       
@@ -1605,11 +1754,115 @@ const authenticateToken = (req: any, res: any, next: any) => {
         db.prepare("DELETE FROM products WHERE id = ?").run(req.params.id);
       });
       transaction();
+
+      // Sync to Firestore (outside transaction)
+      try {
+        await adminDb.collection('products').doc(req.params.id).delete();
+        // Subcollections are not automatically deleted in Firestore, but they won't show up in queries for products
+      } catch (firestoreErr) {
+        console.error("Firestore sync error (product delete):", firestoreErr);
+      }
       
       res.json({ success: true });
     } catch (error) {
       console.error("Delete product error:", error);
       res.status(400).json({ error: "Failed to delete product" });
+    }
+  });
+
+  app.post("/api/admin/sync-cloud", authenticateToken, isAdmin, async (req, res) => {
+    try {
+      console.log("Starting manual cloud sync...");
+      
+      // Sync Categories
+      const categories = db.prepare("SELECT * FROM categories").all() as any[];
+      const categoriesRef = adminDb.collection('categories');
+      const existingCats = await categoriesRef.get();
+      for (const doc of existingCats.docs) await doc.ref.delete();
+      for (const cat of categories) {
+        await categoriesRef.doc(cat.id.toString()).set({
+          name: cat.name,
+          slug: cat.slug,
+          image_url: cat.image_url,
+          is_featured: cat.is_featured
+        });
+      }
+
+      // Sync Banners
+      const banners = db.prepare("SELECT * FROM hero_banners").all() as any[];
+      const bannersRef = adminDb.collection('hero_banners');
+      const existingBanners = await bannersRef.get();
+      for (const doc of existingBanners.docs) await doc.ref.delete();
+      for (const b of banners) {
+        await bannersRef.doc(b.id.toString()).set({
+          title: b.title,
+          subtitle: b.subtitle,
+          image_url: b.image_url,
+          link_url: b.link_url,
+          priority: b.priority,
+          is_active: b.is_active,
+          button_text: b.button_text,
+          background_color: b.background_color
+        });
+      }
+
+      // Sync Products
+      const products = db.prepare("SELECT * FROM products").all() as any[];
+      const productsRef = adminDb.collection('products');
+      const existingProducts = await productsRef.get();
+      for (const doc of existingProducts.docs) await doc.ref.delete();
+      for (const p of products) {
+        await productsRef.doc(p.id).set({
+          name: p.name,
+          slug: p.slug,
+          sku: p.sku,
+          description: p.description,
+          category_id: p.category_id,
+          gsm: p.gsm,
+          material_composition: p.material_composition,
+          fit_type: p.fit_type,
+          weight: p.weight,
+          base_price: p.base_price,
+          cost_price: p.cost_price,
+          discount_price: p.discount_price,
+          stock_quantity: p.stock_quantity,
+          low_stock_alert: p.low_stock_alert,
+          is_active: p.is_active,
+          is_new_arrival: p.is_new_arrival,
+          is_best_seller: p.is_best_seller,
+          created_at: p.created_at
+        });
+
+        // Sync Images
+        const images = db.prepare("SELECT * FROM product_images WHERE product_id = ?").all(p.id) as any[];
+        const imagesRef = adminDb.collection(`products/${p.id}/images`);
+        for (const img of images) {
+          await imagesRef.add({
+            image_url: img.image_url,
+            is_main: img.is_main,
+            display_order: img.display_order
+          });
+        }
+
+        // Sync Variants
+        const variants = db.prepare("SELECT * FROM product_variants WHERE product_id = ?").all(p.id) as any[];
+        const variantsRef = adminDb.collection(`products/${p.id}/variants`);
+        for (const v of variants) {
+          await variantsRef.add({
+            size: v.size,
+            color: v.color,
+            color_code: v.color_code,
+            sku: v.sku,
+            stock_quantity: v.stock_quantity,
+            additional_price: v.additional_price
+          });
+        }
+      }
+
+      res.json({ success: true, message: "Cloud sync completed successfully" });
+    } catch (error) {
+      console.error("Cloud sync error:", error);
+      res.status(500).json({ error: "Failed to sync with cloud" });
     }
   });
 

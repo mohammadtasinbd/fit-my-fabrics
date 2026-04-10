@@ -37,18 +37,18 @@ export function Navbar() {
 
           {/* Center: Logo */}
           <div className="flex justify-center w-1/3">
-            <Link to="/" className="flex flex-col items-center group">
+            <Link to="/" className="flex items-center space-x-3 group">
               {settings.site_logo && settings.site_logo.trim() !== '' && (
                 <img 
                   src={settings.site_logo} 
                   alt={settings.site_name || 'FIT MY FABRICS'} 
                   style={{ height: `${(settings.site_logo_height && settings.site_logo_height.trim() !== '') ? settings.site_logo_height : 40}px` }}
-                  className="w-auto aspect-square object-contain transition-transform group-hover:scale-105 mb-1"
+                  className="w-auto object-contain transition-transform group-hover:scale-105"
                   referrerPolicy="no-referrer"
                 />
               )}
               {(settings.show_logo_and_name === '1' || !settings.site_logo || settings.site_logo.trim() === '') && (
-                <span className={`${(settings.site_logo && settings.site_logo.trim() !== '') ? 'text-xs' : 'text-3xl'} font-black tracking-tighter text-black italic transition-colors group-hover:text-gray-600 uppercase`}>
+                <span className={`${(settings.site_logo && settings.site_logo.trim() !== '') ? 'text-lg' : 'text-3xl'} font-black tracking-tighter text-black italic transition-colors group-hover:text-gray-600 uppercase whitespace-nowrap`}>
                   {settings.site_name || 'FIT MY FABRICS'}
                 </span>
               )}

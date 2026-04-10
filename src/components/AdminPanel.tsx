@@ -95,7 +95,7 @@ export function AdminPanel() {
         }
 
         if (activeTab === 'products') {
-          const productsRes = await fetch('/api/products');
+          const productsRes = await fetch('/api/admin/products', { headers });
           if (productsRes.ok) {
             const productsData = await productsRes.json().catch(() => []);
             setProducts(productsData);
@@ -1434,6 +1434,31 @@ export function AdminPanel() {
                   ))}
                 </tbody>
               </table>
+              <div className="p-6 bg-gray-50 border-t border-gray-100 flex justify-between items-center">
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-widest mb-1">Cloud Synchronization</h4>
+                  <p className="text-[10px] text-gray-400">Manually sync your local data with the cloud if you notice inconsistencies.</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!confirm('This will overwrite cloud data with your local data. Continue?')) return;
+                    try {
+                      const res = await fetch('/api/admin/sync-cloud', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                      });
+                      const data = await res.json();
+                      if (res.ok) alert(data.message);
+                      else alert(data.error);
+                    } catch (err) {
+                      alert('Failed to sync with cloud');
+                    }
+                  }}
+                  className="px-6 py-2 bg-black text-white text-[10px] font-bold tracking-widest uppercase hover:bg-gray-800 transition-colors rounded-full"
+                >
+                  Sync to Cloud
+                </button>
+              </div>
             </div>
           </div>
         )}
