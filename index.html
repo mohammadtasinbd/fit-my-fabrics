@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fit My Fabrics | Premium Bangladeshi Fashion</title>
+  </head>
+  <body>
+    <script>
+      // Prevent formdata-polyfill from monkey-patching window.fetch
+      // which causes "TypeError: Cannot set property fetch of #<Window> which has only a getter"
+      (function() {
+        const originalFetch = window.fetch;
+        if (originalFetch) {
+          try {
+            Object.defineProperty(window, 'fetch', {
+              configurable: true,
+              enumerable: true,
+              get: () => originalFetch,
+              set: () => { /* Ignore attempts to override fetch */ }
+            });
+          } catch (e) {
+            // If we can't redefine it, we just hope for the best
+          }
+        }
+      })();
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
