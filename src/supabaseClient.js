@@ -1,6 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = 'https://wlnucjzvkuuyhllcyudn.supabase.co'
-const supabaseAnonKey = 'sb_publishable_LrTk44uR8yul05adkOCVvA_iTukBhA0' // Ekhane apnar copy kora key ta thakbe
+// Vite-e environment variable call korar niyom
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
