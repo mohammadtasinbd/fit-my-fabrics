@@ -177,6 +177,30 @@ async function initServer() {
         await adminDb.collection('pages').doc(pg.slug).set(pg);
       }
 
+      // Seed bulk discount rules
+      const discountRules = db.prepare("SELECT * FROM bulk_discount_rules").all() as any[];
+      for (const rule of discountRules) {
+        await adminDb.collection('bulk_discount_rules').doc(rule.id.toString()).set({
+          ...rule,
+          is_active: !!rule.is_active
+        });
+      }
+
+      // Seed shipping rules
+      const shippingRules = db.prepare("SELECT * FROM shipping_rules").all() as any[];
+      for (const rule of shippingRules) {
+        await adminDb.collection('shipping_rules').doc(rule.id.toString()).set(rule);
+      }
+
+      // Seed promo codes
+      const promoCodes = db.prepare("SELECT * FROM promo_codes").all() as any[];
+      for (const promo of promoCodes) {
+        await adminDb.collection('promo_codes').doc(promo.id.toString()).set({
+          ...promo,
+          is_active: !!promo.is_active
+        });
+      }
+
       console.log("[STARTUP] Firestore seeding completed.");
     } else {
       console.log("[STARTUP] Firestore already contains data.");
@@ -328,11 +352,11 @@ const authenticateToken = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get("/api/pages/:slug", (req, res) => {
+  app.get("/api/pages/:slug", async (req, res) => {
     try {
-      const page = db.prepare("SELECT * FROM pages WHERE slug = ?").get(req.params.slug);
-      if (!page) return res.status(404).json({ error: "Page not found" });
-      res.json(page);
+      const doc = await adminDb.collection('pages').doc(req.params.slug).get();
+      if (!doc.exists) return res.status(404).json({ error: "Page not found" });
+      res.json({ id: doc.id, ...doc.data() });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch page" });
     }
@@ -1145,14 +1169,20 @@ const authenticateToken = (req: any, res: any, next: any) => {
     }
   });
 
-  app.post("/api/promo-codes/validate", (req, res) => {
+  app.post("/api/promo-codes/validate", async (req, res) => {
     const { code, orderAmount } = req.body;
     try {
-      const promo = db.prepare("SELECT * FROM promo_codes WHERE code = ? AND is_active = 1").get(code.toUpperCase()) as any;
+      const snapshot = await adminDb.collection('promo_codes')
+        .where('code', '==', code.toUpperCase())
+        .where('is_active', '==', true)
+        .limit(1)
+        .get();
       
-      if (!promo) {
+      if (snapshot.empty) {
         return res.status(404).json({ error: "Invalid promo code" });
       }
+
+      const promo = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as any;
 
       if (promo.expires_at && new Date(promo.expires_at) < new Date()) {
         return res.status(400).json({ error: "Promo code has expired" });
@@ -1184,7 +1214,8 @@ const authenticateToken = (req: any, res: any, next: any) => {
         discount_value: promo.discount_value
       });
     } catch (error) {
-      res.status(500).json({ error: "Internal server error" });
+      console.error("Promo validation error:", error);
+      res.status(500).json({ error: "Failed to validate promo code" });
     }
   });
 
@@ -1431,19 +1462,22 @@ const authenticateToken = (req: any, res: any, next: any) => {
   });
 
   // Bulk Discount Rules
-  app.get("/api/bulk-discount-rules", (req, res) => {
+  app.get("/api/bulk-discount-rules", async (req, res) => {
     try {
-      const rules = db.prepare("SELECT * FROM bulk_discount_rules WHERE is_active = 1 ORDER BY min_quantity ASC").all();
-      res.json(rules);
+      const snapshot = await adminDb.collection('bulk_discount_rules').where('is_active', '==', true).get();
+      const rules = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json(rules.sort((a: any, b: any) => a.min_quantity - b.min_quantity));
     } catch (error) {
+      console.error("Error fetching discount rules from Firestore:", error);
       res.status(500).json({ error: "Failed to fetch discount rules" });
     }
   });
 
-  app.get("/api/admin/bulk-discount-rules", authenticateToken, isAdmin, (req, res) => {
+  app.get("/api/admin/bulk-discount-rules", authenticateToken, isAdmin, async (req, res) => {
     try {
-      const rules = db.prepare("SELECT * FROM bulk_discount_rules ORDER BY min_quantity ASC").all();
-      res.json(rules);
+      const snapshot = await adminDb.collection('bulk_discount_rules').get();
+      const rules = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json(rules.sort((a: any, b: any) => a.min_quantity - b.min_quantity));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch discount rules" });
     }
@@ -1889,6 +1923,71 @@ const authenticateToken = (req: any, res: any, next: any) => {
             })
           ));
         }));
+      }
+
+      // Sync Bulk Discount Rules
+      const discountRules = db.prepare("SELECT * FROM bulk_discount_rules").all() as any[];
+      const discountRulesRef = adminDb.collection('bulk_discount_rules');
+      const existingRules = await discountRulesRef.get();
+      for (const doc of existingRules.docs) await doc.ref.delete();
+      for (const rule of discountRules) {
+        await discountRulesRef.doc(rule.id.toString()).set({
+          min_quantity: rule.min_quantity,
+          discount_percentage: rule.discount_percentage,
+          is_active: !!rule.is_active
+        });
+      }
+
+      // Sync Shipping Rules
+      const shippingRules = db.prepare("SELECT * FROM shipping_rules").all() as any[];
+      const shippingRulesRef = adminDb.collection('shipping_rules');
+      const existingShipping = await shippingRulesRef.get();
+      for (const doc of existingShipping.docs) await doc.ref.delete();
+      for (const rule of shippingRules) {
+        await shippingRulesRef.doc(rule.id.toString()).set({
+          zone_name: rule.zone_name,
+          base_charge: rule.base_charge,
+          free_delivery_threshold: rule.free_delivery_threshold,
+          estimated_days: rule.estimated_days
+        });
+      }
+
+      // Sync Site Settings
+      const siteSettings = db.prepare("SELECT * FROM site_settings").all() as any[];
+      const siteSettingsRef = adminDb.collection('site_settings');
+      for (const s of siteSettings) {
+        await siteSettingsRef.doc(s.key).set({ value: s.value });
+      }
+
+      // Sync Pages
+      const pages = db.prepare("SELECT * FROM pages").all() as any[];
+      const pagesRef = adminDb.collection('pages');
+      for (const pg of pages) {
+        await pagesRef.doc(pg.slug).set({
+          title: pg.title,
+          content: pg.content,
+          updated_at: pg.updated_at
+        });
+      }
+
+      // Sync Promo Codes
+      const promoCodes = db.prepare("SELECT * FROM promo_codes").all() as any[];
+      const promoCodesRef = adminDb.collection('promo_codes');
+      const existingPromos = await promoCodesRef.get();
+      for (const doc of existingPromos.docs) await doc.ref.delete();
+      for (const promo of promoCodes) {
+        await promoCodesRef.doc(promo.id.toString()).set({
+          code: promo.code,
+          discount_type: promo.discount_type,
+          discount_value: promo.discount_value,
+          min_order_amount: promo.min_order_amount,
+          max_discount_amount: promo.max_discount_amount,
+          usage_limit: promo.usage_limit,
+          used_count: promo.used_count,
+          expires_at: promo.expires_at,
+          is_active: !!promo.is_active,
+          created_at: promo.created_at
+        });
       }
 
       res.json({ success: true, message: "Cloud sync completed successfully" });

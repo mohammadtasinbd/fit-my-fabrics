@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { CartItem, Product, ProductVariant } from './types';
+import { db } from './firebase';
+import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
 
 interface CartContextType {
   cart: CartItem[];
@@ -39,20 +41,16 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, [promoCode]);
 
   useEffect(() => {
-    fetch('/api/bulk-discount-rules')
-      .then(async res => {
-        const text = await res.text();
-        try {
-          return JSON.parse(text);
-        } catch (e) {
-          console.error('Invalid JSON from /api/bulk-discount-rules:', text);
-          return [];
-        }
-      })
-      .then(data => {
-        setDiscountRules(Array.isArray(data) ? data.filter((r: any) => r.is_active).sort((a: any, b: any) => a.min_quantity - b.min_quantity) : []);
-      })
-      .catch(err => console.error('Error fetching discount rules:', err));
+    const fetchDiscountRules = async () => {
+      try {
+        const rulesSnapshot = await getDocs(collection(db, 'bulk_discount_rules'));
+        const rulesData = rulesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setDiscountRules(rulesData.filter((r: any) => r.is_active).sort((a: any, b: any) => a.min_quantity - b.min_quantity));
+      } catch (err) {
+        console.error('Error fetching discount rules from Firestore:', err);
+      }
+    };
+    fetchDiscountRules();
   }, []);
 
   const addToCart = (product: Product, variant: ProductVariant, quantity: number) => {
