@@ -110,6 +110,12 @@ const refreshTransporter = async () => {
 async function initServer() {
   transporter = await createTransporter();
 
+  // Skip seeding on serverless platforms to avoid timeouts and redundant operations
+  if (process.env.VERCEL === "1" || process.env.NETLIFY === "true") {
+    console.log("[STARTUP] Serverless mode detected. Skipping Firestore seeding and DB verification.");
+    return;
+  }
+
   // Seed Firestore if empty
   try {
     const settingsSnapshot = await adminDb.collection('site_settings').limit(1).get();
@@ -1946,7 +1952,7 @@ const authenticateToken = (req: any, res: any, next: any) => {
     }
   }
 
-if (process.env.VERCEL !== "1") {
+if (process.env.VERCEL !== "1" && process.env.NETLIFY !== "true") {
   const PORT = 3000;
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
