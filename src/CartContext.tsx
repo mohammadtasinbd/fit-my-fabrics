@@ -40,8 +40,15 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     fetch('/api/bulk-discount-rules')
-      .then(res => res.json())
-      .catch(() => [])
+      .then(async res => {
+        const text = await res.text();
+        try {
+          return JSON.parse(text);
+        } catch (e) {
+          console.error('Invalid JSON from /api/bulk-discount-rules:', text);
+          return [];
+        }
+      })
       .then(data => {
         setDiscountRules(Array.isArray(data) ? data.filter((r: any) => r.is_active).sort((a: any, b: any) => a.min_quantity - b.min_quantity) : []);
       })
@@ -85,7 +92,14 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ code, orderAmount: subtotal })
       });
       
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error('Invalid JSON from /api/promo-codes/validate:', text);
+        return { success: false, error: 'Server returned an invalid response' };
+      }
       
       if (res.ok && data.success) {
         setPromoCode(data);

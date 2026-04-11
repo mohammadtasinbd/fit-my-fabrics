@@ -23,9 +23,17 @@ export function Dashboard() {
       fetch('/api/user/orders', {
         headers: { 'Authorization': `Bearer ${token}` }
       })
-      .then(res => res.json())
-      .catch(() => [])
+      .then(async res => {
+        const text = await res.text();
+        try {
+          return JSON.parse(text);
+        } catch (e) {
+          console.error('Invalid JSON from /api/user/orders:', text);
+          return [];
+        }
+      })
       .then(data => setOrders(Array.isArray(data) ? data : []))
+      .catch(() => setOrders([]))
       .finally(() => setLoading(false));
     }
   }, [token]);
@@ -36,8 +44,19 @@ export function Dashboard() {
       const res = await fetch(`/api/user/orders/${orderId}/reorder`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (!res.ok) throw new Error('Failed to fetch order details');
-      const items = await res.json().catch(() => []);
+      
+      const text = await res.text();
+      let items: any = [];
+      try {
+        items = JSON.parse(text);
+      } catch (e) {
+        console.error('Invalid JSON from reorder:', text);
+        throw new Error('Server returned an invalid response');
+      }
+      
+      if (!res.ok) throw new Error(items.error || 'Failed to fetch order details');
+      
+      if (!Array.isArray(items)) items = [];
       
       items.forEach((item: any) => {
         addToCart(item.product, item.variant, item.quantity);

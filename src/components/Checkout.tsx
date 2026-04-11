@@ -3,8 +3,8 @@ import { useCart } from '../CartContext';
 import { formatPrice } from '../lib/utils';
 import { ShippingRule } from '../types';
 import { useNavigate, Navigate } from 'react-router-dom';
-import { CheckCircle2, ChevronRight, Lock } from 'lucide-react';
-import { motion } from 'motion/react';
+import { CheckCircle2, ChevronRight, Lock, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../AuthContext';
 import { db } from '../firebase';
 import { collection, getDocs } from 'firebase/firestore';
@@ -18,6 +18,7 @@ export function Checkout() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [orderId, setOrderId] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     customer_name: user?.name || '',
@@ -50,7 +51,10 @@ export function Checkout() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedZone) return alert('Please select a shipping zone');
+    if (!selectedZone) {
+      setError('Please select a shipping zone');
+      return;
+    }
     
     setIsSubmitting(true);
     try {
@@ -89,11 +93,11 @@ export function Checkout() {
         setIsSuccess(true);
         clearCart();
       } else {
-        alert(data.error || 'Failed to place order');
+        setError(data.error || 'Failed to place order');
       }
-    } catch (error) {
-      console.error(error);
-      alert('Failed to place order');
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Failed to place order');
     } finally {
       setIsSubmitting(false);
     }
@@ -128,6 +132,34 @@ export function Checkout() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
       <h1 className="text-4xl font-bold tracking-tighter mb-12">CHECKOUT</h1>
+
+      <AnimatePresence>
+        {error && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white rounded-2xl p-8 max-w-sm w-full shadow-2xl text-center relative"
+            >
+              <button 
+                onClick={() => setError(null)}
+                className="absolute top-4 right-4 text-gray-400 hover:text-black transition-colors"
+              >
+                <X size={20} />
+              </button>
+              <h3 className="text-xl font-bold text-red-600 mb-2 uppercase tracking-tight">Checkout Error</h3>
+              <p className="text-gray-600 mb-6">{error}</p>
+              <button
+                onClick={() => setError(null)}
+                className="w-full py-3 bg-black text-white rounded-xl font-bold uppercase tracking-widest hover:bg-gray-800 transition-all"
+              >
+                Dismiss
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-2 gap-16">
         <div className="space-y-12">

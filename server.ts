@@ -130,6 +130,7 @@ async function initServer() {
       for (const p of products) {
         await adminDb.collection('products').doc(p.id.toString()).set({
           ...p,
+          category_id: p.category_id?.toString(),
           is_active: !!p.is_active,
           is_new_arrival: !!p.is_new_arrival,
           is_best_seller: !!p.is_best_seller
@@ -1826,52 +1827,62 @@ const authenticateToken = (req: any, res: any, next: any) => {
       const productsRef = adminDb.collection('products');
       const existingProducts = await productsRef.get();
       for (const doc of existingProducts.docs) await doc.ref.delete();
-      for (const p of products) {
-        await productsRef.doc(p.id).set({
-          name: p.name,
-          slug: p.slug,
-          sku: p.sku,
-          description: p.description,
-          category_id: p.category_id,
-          gsm: p.gsm,
-          material_composition: p.material_composition,
-          fit_type: p.fit_type,
-          weight: p.weight,
-          base_price: p.base_price,
-          cost_price: p.cost_price,
-          discount_price: p.discount_price,
-          stock_quantity: p.stock_quantity,
-          low_stock_alert: p.low_stock_alert,
-          is_active: !!p.is_active,
-          is_new_arrival: !!p.is_new_arrival,
-          is_best_seller: !!p.is_best_seller,
-          created_at: p.created_at
-        });
-
-        // Sync Images
-        const images = db.prepare("SELECT * FROM product_images WHERE product_id = ?").all(p.id) as any[];
-        const imagesRef = adminDb.collection(`products/${p.id}/images`);
-        for (const img of images) {
-          await imagesRef.add({
-            image_url: img.image_url,
-            is_main: !!img.is_main,
-            display_order: img.display_order
+      
+      // Use chunks to avoid overwhelming Firestore or timing out
+      const chunkSize = 10;
+      for (let i = 0; i < products.length; i += chunkSize) {
+        const chunk = products.slice(i, i + chunkSize);
+        await Promise.all(chunk.map(async (p) => {
+          await productsRef.doc(p.id).set({
+            name: p.name,
+            slug: p.slug,
+            sku: p.sku,
+            description: p.description,
+            category_id: p.category_id?.toString(),
+            gsm: p.gsm,
+            material_composition: p.material_composition,
+            fit_type: p.fit_type,
+            weight: p.weight,
+            base_price: p.base_price,
+            cost_price: p.cost_price,
+            discount_price: p.discount_price,
+            stock_quantity: p.stock_quantity,
+            low_stock_alert: p.low_stock_alert,
+            is_active: !!p.is_active,
+            is_new_arrival: !!p.is_new_arrival,
+            is_best_seller: !!p.is_best_seller,
+            created_at: p.created_at
           });
-        }
 
-        // Sync Variants
-        const variants = db.prepare("SELECT * FROM product_variants WHERE product_id = ?").all(p.id) as any[];
-        const variantsRef = adminDb.collection(`products/${p.id}/variants`);
-        for (const v of variants) {
-          await variantsRef.add({
-            size: v.size,
-            color: v.color,
-            color_code: v.color_code,
-            sku: v.sku,
-            stock_quantity: v.stock_quantity,
-            additional_price: v.additional_price
-          });
-        }
+          // Sync Images for this product
+          const images = db.prepare("SELECT * FROM product_images WHERE product_id = ?").all(p.id) as any[];
+          const imagesRef = adminDb.collection(`products/${p.id}/images`);
+          const existingImages = await imagesRef.get();
+          for (const doc of existingImages.docs) await doc.ref.delete();
+          await Promise.all(images.map(img => 
+            imagesRef.add({
+              image_url: img.image_url,
+              is_main: !!img.is_main,
+              display_order: img.display_order
+            })
+          ));
+
+          // Sync Variants for this product
+          const variants = db.prepare("SELECT * FROM product_variants WHERE product_id = ?").all(p.id) as any[];
+          const variantsRef = adminDb.collection(`products/${p.id}/variants`);
+          const existingVariants = await variantsRef.get();
+          for (const doc of existingVariants.docs) await doc.ref.delete();
+          await Promise.all(variants.map(v => 
+            variantsRef.add({
+              size: v.size,
+              color: v.color,
+              color_code: v.color_code,
+              sku: v.sku,
+              stock_quantity: v.stock_quantity,
+              additional_price: v.additional_price
+            })
+          ));
+        }));
       }
 
       res.json({ success: true, message: "Cloud sync completed successfully" });

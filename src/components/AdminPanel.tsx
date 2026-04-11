@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { useSettings } from '../SettingsContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area } from 'recharts';
-import { BarChart as BarChartIcon, Package, ShoppingCart, DollarSign, Users, User, Plus, Edit, Trash2, ExternalLink, Settings, FileText, ArrowLeft, Mail, HelpCircle, CheckCircle, AlertCircle, Eye, EyeOff, Share2, Phone, MessageCircle, Globe, Facebook, Instagram, Twitter } from 'lucide-react';
-import { formatPrice } from '../lib/utils';
-import { motion } from 'motion/react';
+import { BarChart as BarChartIcon, Package, ShoppingCart, DollarSign, Users, User, Plus, Edit, Trash2, ExternalLink, Settings, FileText, ArrowLeft, Mail, HelpCircle, CheckCircle, AlertCircle, Eye, EyeOff, Share2, Phone, MessageCircle, Globe, Facebook, Instagram, Twitter, RotateCcw } from 'lucide-react';
+import { formatPrice, fetchJson } from '../lib/utils';
+import { motion, AnimatePresence } from 'motion/react';
 
 export function AdminPanel() {
   const { token, user, logout } = useAuth();
@@ -28,6 +28,41 @@ export function AdminPanel() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [testMailLoading, setTestMailLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{ loading: boolean; message: string | null; error: string | null }>({
+    loading: false,
+    message: null,
+    error: null
+  });
+  const [showSyncConfirm, setShowSyncConfirm] = useState(false);
+
+  const handleSyncCloud = async () => {
+    setShowSyncConfirm(false);
+    setSyncStatus({ loading: true, message: 'Synchronizing data to cloud...', error: null });
+    try {
+      const res = await fetch('/api/admin/sync-cloud', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await fetchJson(res);
+      if (res.ok) {
+        setSyncStatus({ loading: false, message: data.message || 'Cloud sync completed successfully', error: null });
+      } else {
+        setSyncStatus({ loading: false, message: null, error: data.error || 'Failed to sync with cloud' });
+      }
+    } catch (err: any) {
+      console.error('Sync error:', err);
+      setSyncStatus({ loading: false, message: null, error: err.message || 'Failed to sync with cloud' });
+    }
+  };
+
+  useEffect(() => {
+    if (syncStatus.message || syncStatus.error) {
+      const timer = setTimeout(() => {
+        setSyncStatus(prev => ({ ...prev, message: null, error: null }));
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [syncStatus.message, syncStatus.error]);
 
   useEffect(() => {
     setMounted(true);
@@ -75,13 +110,13 @@ export function AdminPanel() {
         
         if (!statsRes.ok) throw new Error('Failed to fetch stats');
         
-        const statsData = await statsRes.json().catch(() => null);
+        const statsData = await fetchJson(statsRes).catch(() => null);
         if (statsData) setStats(statsData);
 
         if (activeTab === 'orders') {
           const ordersRes = await fetch('/api/admin/orders', { headers });
           if (ordersRes.ok) {
-            const ordersData = await ordersRes.json().catch(() => []);
+            const ordersData = await fetchJson(ordersRes).catch(() => []);
             setOrders(ordersData);
           }
         }
@@ -89,7 +124,7 @@ export function AdminPanel() {
         if (activeTab === 'users') {
           const usersRes = await fetch('/api/admin/users', { headers });
           if (usersRes.ok) {
-            const usersData = await usersRes.json().catch(() => ({ admins: [], customers: [] }));
+            const usersData = await fetchJson(usersRes).catch(() => ({ admins: [], customers: [] }));
             setUsers(usersData);
           }
         }
@@ -97,7 +132,7 @@ export function AdminPanel() {
         if (activeTab === 'products') {
           const productsRes = await fetch('/api/admin/products', { headers });
           if (productsRes.ok) {
-            const productsData = await productsRes.json().catch(() => []);
+            const productsData = await fetchJson(productsRes).catch(() => []);
             setProducts(productsData);
           }
         }
@@ -105,7 +140,7 @@ export function AdminPanel() {
         if (activeTab === 'categories') {
           const categoriesRes = await fetch('/api/admin/categories', { headers });
           if (categoriesRes.ok) {
-            const categoriesData = await categoriesRes.json().catch(() => []);
+            const categoriesData = await fetchJson(categoriesRes).catch(() => []);
             setCategories(categoriesData);
           }
         }
@@ -113,7 +148,7 @@ export function AdminPanel() {
         if (activeTab === 'banners') {
           const bannersRes = await fetch('/api/admin/banners', { headers });
           if (bannersRes.ok) {
-            const bannersData = await bannersRes.json().catch(() => []);
+            const bannersData = await fetchJson(bannersRes).catch(() => []);
             setBanners(bannersData);
           }
         }
@@ -121,7 +156,7 @@ export function AdminPanel() {
         if (activeTab === 'settings' || activeTab === 'mail-config' || activeTab === 'connect') {
           const settingsRes = await fetch('/api/admin/site-settings', { headers });
           if (settingsRes.ok) {
-            const settingsData = await settingsRes.json().catch(() => []);
+            const settingsData = await fetchJson(settingsRes).catch(() => []);
             setSiteSettings(settingsData);
             
             const REQUIRED_MAIL_KEYS = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM'];
@@ -137,7 +172,7 @@ export function AdminPanel() {
         if (activeTab === 'pages') {
           const pagesRes = await fetch('/api/admin/pages', { headers });
           if (pagesRes.ok) {
-            const pagesData = await pagesRes.json().catch(() => []);
+            const pagesData = await fetchJson(pagesRes).catch(() => []);
             setPages(pagesData);
           }
         }
@@ -145,13 +180,13 @@ export function AdminPanel() {
         if (activeTab === 'discounts') {
           const res = await fetch('/api/bulk-discount-rules');
           if (res.ok) {
-            const data = await res.json().catch(() => []);
+            const data = await fetchJson(res).catch(() => []);
             setDiscountRules(data);
           }
 
           const promoRes = await fetch('/api/admin/promo-codes', { headers });
           if (promoRes.ok) {
-            const promoData = await promoRes.json().catch(() => []);
+            const promoData = await fetchJson(promoRes).catch(() => []);
             setPromoCodes(promoData);
           }
         }
@@ -372,44 +407,44 @@ export function AdminPanel() {
         const headers = { 'Authorization': `Bearer ${token}` };
         if (modalType === 'category') {
           const r = await fetch('/api/admin/categories', { headers });
-          const d = await r.json().catch(() => []);
+          const d = await fetchJson(r).catch(() => []);
           setCategories(d);
         }
         if (modalType === 'banner') {
           const r = await fetch('/api/admin/banners', { headers });
-          const d = await r.json().catch(() => []);
+          const d = await fetchJson(r).catch(() => []);
           setBanners(d);
         }
         if (modalType === 'product') {
           const r = await fetch('/api/products');
-          const d = await r.json().catch(() => []);
+          const d = await fetchJson(r).catch(() => []);
           setProducts(d);
         }
         if (modalType === 'customer' || modalType === 'admin') {
           const r = await fetch('/api/admin/users', { headers });
-          const d = await r.json().catch(() => ({ admins: [], customers: [] }));
+          const d = await fetchJson(r).catch(() => ({ admins: [], customers: [] }));
           setUsers(d);
         }
         if (modalType === 'setting' || modalType === 'mail' || modalType === 'mail-all') {
           const r = await fetch('/api/admin/site-settings', { headers });
-          const data = await r.json().catch(() => []);
+          const data = await fetchJson(r).catch(() => []);
           setSiteSettings(data);
           setMailSettings(data.filter((s: any) => s.key.startsWith('SMTP_')));
           await refreshSettings();
         }
         if (modalType === 'page') {
           const r = await fetch('/api/admin/pages', { headers });
-          const d = await r.json().catch(() => []);
+          const d = await fetchJson(r).catch(() => []);
           setPages(d);
         }
         if (modalType === 'discount-rule') {
           const r = await fetch('/api/bulk-discount-rules');
-          const d = await r.json().catch(() => []);
+          const d = await fetchJson(r).catch(() => []);
           setDiscountRules(d);
         }
         if (modalType === 'promo-code') {
           const r = await fetch('/api/admin/promo-codes', { headers });
-          const d = await r.json().catch(() => []);
+          const d = await fetchJson(r).catch(() => []);
           setPromoCodes(d);
         }
       } else {
@@ -1453,26 +1488,68 @@ export function AdminPanel() {
                   <h4 className="text-xs font-bold uppercase tracking-widest mb-1">Cloud Synchronization</h4>
                   <p className="text-[10px] text-gray-400">Manually sync your local data with the cloud if you notice inconsistencies.</p>
                 </div>
-                <button
-                  onClick={async () => {
-                    if (!confirm('This will overwrite cloud data with your local data. Continue?')) return;
-                    try {
-                      const res = await fetch('/api/admin/sync-cloud', {
-                        method: 'POST',
-                        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-                      });
-                      const data = await res.json();
-                      if (res.ok) alert(data.message);
-                      else alert(data.error);
-                    } catch (err) {
-                      alert('Failed to sync with cloud');
-                    }
-                  }}
-                  className="px-6 py-2 bg-black text-white text-[10px] font-bold tracking-widest uppercase hover:bg-gray-800 transition-colors rounded-full"
-                >
-                  Sync to Cloud
-                </button>
+                <div className="flex items-center space-x-4">
+                  {syncStatus.loading && (
+                    <div className="flex items-center space-x-2 text-[10px] font-bold text-blue-600 uppercase tracking-widest">
+                      <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                      <span>Syncing...</span>
+                    </div>
+                  )}
+                  {syncStatus.message && (
+                    <div className="text-[10px] font-bold text-green-600 uppercase tracking-widest">
+                      {syncStatus.message}
+                    </div>
+                  )}
+                  {syncStatus.error && (
+                    <div className="text-[10px] font-bold text-red-600 uppercase tracking-widest">
+                      {syncStatus.error}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setShowSyncConfirm(true)}
+                    disabled={syncStatus.loading}
+                    className="px-6 py-2 bg-black text-white text-[10px] font-bold tracking-widest uppercase hover:bg-gray-800 transition-colors rounded-full disabled:opacity-50"
+                  >
+                    Sync to Cloud
+                  </button>
+                </div>
               </div>
+
+              {/* Sync Confirmation Modal */}
+              <AnimatePresence>
+                {showSyncConfirm && (
+                  <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className="bg-white rounded-2xl p-8 max-w-sm w-full shadow-2xl text-center"
+                    >
+                      <div className="w-16 h-16 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <RotateCcw size={32} />
+                      </div>
+                      <h3 className="text-xl font-bold mb-2 uppercase tracking-tight">Cloud Sync</h3>
+                      <p className="text-gray-500 text-sm mb-8">
+                        This will overwrite all data in Firestore with your current local database data. This action cannot be undone.
+                      </p>
+                      <div className="flex space-x-3">
+                        <button
+                          onClick={() => setShowSyncConfirm(false)}
+                          className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-bold uppercase tracking-widest hover:bg-gray-50 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleSyncCloud}
+                          className="flex-1 py-3 bg-black text-white rounded-xl text-sm font-bold uppercase tracking-widest hover:bg-gray-800 transition-colors"
+                        >
+                          Sync Now
+                        </button>
+                      </div>
+                    </motion.div>
+                  </div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         )}
@@ -1496,7 +1573,7 @@ export function AdminPanel() {
                     const res = await fetch('/api/admin/test-email', {
                       headers: { 'Authorization': `Bearer ${token}` }
                     });
-                    const data = await res.json();
+                    const data = await fetchJson(res);
                     if (res.ok) {
                       setSuccessMessage(data.message);
                     } else {
@@ -1723,7 +1800,7 @@ export function AdminPanel() {
                       setSuccessMessage("Password updated successfully");
                       target.reset();
                     } else {
-                      const data = await res.json();
+                      const data = await fetchJson(res);
                       setErrorMessage(data.error || "Failed to update password");
                     }
                   } catch (err) {
